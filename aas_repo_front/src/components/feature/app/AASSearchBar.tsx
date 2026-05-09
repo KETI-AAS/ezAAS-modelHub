@@ -1,108 +1,95 @@
 "use client";
 
 import { useRef, useState } from "react";
-import AASSearchPreview from "../model/AASSearchPreivew";
-import { getCodeList } from "@/api";
-import { useQuery } from "@tanstack/react-query";
-import { Select } from "@mantine/core";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
 import { ROUTES } from "@/constants/routes";
 import SearchBox from "@/components/SearchBox";
-import CategoryCombobox from "@/components/CategoryCombobox";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Search } from "lucide-react";
+import { MOCK_AAS_CATEGORIES, MOCK_SM_CATEGORIES } from "@/lib/mock-data";
 
 export default function AASSearchBar() {
   const router = useRouter();
-  const [modelType, setModelType] = useState<"aasmodel" | "submodel">(
-    "aasmodel"
-  );
+  const [modelType, setModelType] = useState<"aasmodel" | "submodel">("aasmodel");
+  const [categorySeq, setCategorySeq] = useState<string>("all");
+  const searchRef = useRef({ searchKey: "" });
 
-  // 검색 박스 상태 값
-  const [searchState, setSearchState] = useState({
-    category_seq: "",
-    searchKey: "",
-  });
-
-  // enter or click button
-  const searchRef = useRef({
-    searchKey: "",
-  });
-
-  const { data: categorys } = useQuery({
-    queryKey: ["common/code"],
-    queryFn: () => getCodeList("category"),
-  });
+  const categories =
+    modelType === "aasmodel" ? MOCK_AAS_CATEGORIES : MOCK_SM_CATEGORIES;
 
   const handleSearch = () => {
     const route =
-      modelType === "aasmodel"
-        ? ROUTES.AASMODEL.LIST
-        : ROUTES.SUBMODEL.LIST;
-    const query = new URLSearchParams({
+      modelType === "aasmodel" ? ROUTES.AASMODEL.LIST : ROUTES.SUBMODEL.LIST;
+    const params: Record<string, string> = {
       title: searchRef.current.searchKey,
-      category_seq: searchState.category_seq,
-    }).toString();
-    router.push(`${route}?${query}`);
+    };
+    if (categorySeq && categorySeq !== "all") {
+      params.category_seq = categorySeq;
+    }
+    router.push(`${route}?${new URLSearchParams(params).toString()}`);
   };
 
   return (
-    <>
-      <SearchBox onSearch={handleSearch}>
-        <div className="col-lg-2 d-flex align-items-center mb-lg-0">
-          <i className="ki-outline ki-abstract-43 fs-1 text-gray-500 me-1"></i>
-          <Select
-            value={modelType}
-            onChange={(value) => {
-              setModelType(value as "aasmodel" | "submodel");
-              setSearchState((prev) => ({ ...prev, category_seq: "" })); // Reset category on type change
-            }}
-            data={[
-              { value: "aasmodel", label: "AAS Template" },
-              { value: "submodel", label: "SubModel Template" },
-            ]}
-            classNames={{
-              input: "form-control form-control-solid border-0",
-            }}
-          />
-        </div>
-        <div className="col-lg-3 d-flex align-items-center mb-lg-0">
-          <i className="ki-outline ki-element-11 fs-1 text-gray-500 me-1"></i>
+    <SearchBox onSearch={handleSearch}>
+      {/* Model type */}
+      <Select
+        value={modelType}
+        onValueChange={(value: string | null) => {
+          if (value) setModelType(value as "aasmodel" | "submodel");
+          setCategorySeq("all");
+        }}
+      >
+        <SelectTrigger className="h-9 w-44 shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="aasmodel">AAS Template</SelectItem>
+            <SelectItem value="submodel">Submodel Template</SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
 
-          <CategoryCombobox
-            className="border-0"
-            code={
-              modelType === "aasmodel" ? "aas_category" : "sm_category"
-            }
-            value={searchState.category_seq}
-            setValue={(value) =>
-              setSearchState((prev) => ({
-                ...prev,
-                category_seq: value ?? "",
-                searchKey: searchRef.current.searchKey,
-              }))
-            }
-          />
-        </div>
+      {/* Category */}
+      <Select value={categorySeq} onValueChange={(v: string | null) => { if (v) setCategorySeq(v); }}>
+        <SelectTrigger className="h-9 w-48 shrink-0">
+          <SelectValue placeholder="All Categories" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">All Categories</SelectItem>
+            {categories.map((cat) => (
+              <SelectItem key={cat.id} value={cat.id}>
+                {cat.text}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
 
-        {/* Search Input */}
-        <div className="position-relative w-md-400px me-md-2">
-          <i className="ki-outline ki-magnifier fs-3 text-gray-500 position-absolute top-50 translate-middle ms-6"></i>
-          <input
-            type="text"
-            className="form-control form-control-solid ps-10"
-            name="search"
-            onChange={(e) => {
-              searchRef.current.searchKey = e.target.value;
-            }}
-            onKeyDown={(e) => {
-              if (e.key == "Enter") {
-                handleSearch();
-              }
-            }}
-            placeholder="Keyword Search"
-          />
-        </div>
-      </SearchBox>
-    </>
+      {/* Keyword */}
+      <div className="relative flex-1 min-w-40">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="text"
+          className="h-9 pl-9"
+          placeholder="Keyword Search"
+          onChange={(e) => {
+            searchRef.current.searchKey = e.target.value;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSearch();
+          }}
+        />
+      </div>
+    </SearchBox>
   );
 }

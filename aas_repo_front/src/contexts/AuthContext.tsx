@@ -2,11 +2,11 @@
 "use client";
 
 import React, { createContext, useState, useContext, useEffect, useCallback } from "react";
-import { useRouter, usePathname, redirect } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { ROUTES, canAccessPath } from "@/constants/routes";
 import type { AuthTokenData, TokenPayload, TokenProfile } from "@/types/auth";
 import { showToast } from "@/utils/toast";
-import { signUp, loginWithCredentials } from "@/api";
+import { signUp, loginWithCredentials } from "@/api/index";
 import { jwtDecode } from "jwt-decode";
 import { useLanguage } from "./LanguageContext";
 
@@ -14,7 +14,7 @@ interface AuthContextType {
   user: TokenProfile | null;
   isAuthenticated: boolean;
   authToken: AuthTokenData | undefined;
-  login: (email: string, password: string, redirectUrl?: string) => Promise<void>;
+  login: (email: string, password: string, redirectUrl?: string) => Promise<string | void>;
   logout: () => Promise<void>;
   loginWithSocial: (social: "google" | "naver") => void;
   signUpWithCredential: (email: string, password: string) => Promise<void>;
@@ -34,7 +34,7 @@ export const AuthProvider = ({
     let authToken: AuthTokenData | undefined;
     try {
       authToken = JSON.parse(tokenMessage);
-      if (!authToken?.target.startsWith("AASREPO")) {
+      if (typeof authToken?.target !== "string" || !authToken.target.startsWith("AASREPO")) {
         authToken = undefined;
       }
     } catch (error) {

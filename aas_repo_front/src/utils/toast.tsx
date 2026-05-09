@@ -1,62 +1,66 @@
 // src/utils/toast.ts
+"use client";
 
 import toast, { ToastOptions, Toast } from "react-hot-toast";
-import { Notification } from "@mantine/core";
-import {
-  IconCheck,
-  IconExclamationMark,
-  IconLoader,
-  IconX,
-} from "@tabler/icons-react";
+import { CheckCircle, AlertCircle, AlertTriangle, Loader2, X } from "lucide-react";
 
-const typeOption = {
+const typeConfig = {
   loading: {
-    icon: <IconLoader size={20} />,
-    color: "#424242",
+    Icon: Loader2,
+    color: "text-slate-600",
+    bg: "bg-white border-slate-300",
+    iconClass: "animate-spin text-slate-500",
   },
-
   success: {
-    icon: <IconCheck size={20} />,
-    color: "#099268",
+    Icon: CheckCircle,
+    color: "text-emerald-700",
+    bg: "bg-white border-emerald-400",
+    iconClass: "text-emerald-500",
   },
   warning: {
-    icon: <IconExclamationMark size={20} />,
-    color: "#e67700",
+    Icon: AlertTriangle,
+    color: "text-amber-700",
+    bg: "bg-white border-amber-400",
+    iconClass: "text-amber-500",
   },
   error: {
-    icon: <IconX size={20} />,
-    color: "#c92a2a",
+    Icon: AlertCircle,
+    color: "text-red-700",
+    bg: "bg-white border-red-400",
+    iconClass: "text-red-500",
   },
 };
 
-type MessageType = keyof typeof typeOption;
+type MessageType = keyof typeof typeConfig;
 
 const createToast = (type: MessageType) => {
   return (message: string, options?: ToastOptions) => {
-    const { icon, color } = typeOption[type];
+    const { Icon, color, bg, iconClass } = typeConfig[type];
 
     return toast.custom(
       (t: Toast) => (
-        <Notification
-          icon={icon}
-          loading={type === "loading"}
-          color={color}
-          mt="md"
-          p={16}
-          style={{ border: `1px solid ${color}` }}
-          onClose={() => toast.dismiss(t.id)}
+        <div
+          className={`flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg transition-all duration-300 ${bg} ${
+            t.visible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
+          }`}
+          style={{ minWidth: 280, maxWidth: 420 }}
         >
-          <span className="fs-5" style={{ color }}>
-            {message}
-          </span>
-        </Notification>
+          <Icon className={`mt-0.5 size-5 shrink-0 ${iconClass}`} />
+          <span className={`flex-1 text-sm font-medium ${color}`}>{message}</span>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="ml-1 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
+            aria-label="Dismiss"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       ),
       options
     );
   };
 };
 
-// ✅ 타입만 명확히 제한된 객체
 export const showToast: {
   loading: (msg: string, opt?: ToastOptions) => string;
   success: (msg: string, opt?: ToastOptions) => string;

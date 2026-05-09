@@ -1,22 +1,26 @@
-import { sendPasswordResetEmail } from "@/api";
-import { IconX } from "@tabler/icons-react";
-import React, { useState } from "react";
+"use client";
 
-function SendResetLinkForm() {
+import React, { useState } from "react";
+import { sendPasswordResetEmail } from "@/api/index";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { XCircle } from "lucide-react";
+
+interface SendResetLinkFormProps {
+  onClose?: () => void;
+}
+
+function SendResetLinkForm({ onClose }: SendResetLinkFormProps) {
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
-
   const [loading, setLoading] = useState(false);
 
-  // 이메일 유효성 검사 함수 추가
-  const isValidEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
+  const isValidEmail = (email: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const onChangeEmail = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setEmail(value);
-
     if (!isValidEmail(value)) {
       setEmailError("Please enter a valid email address.");
     } else {
@@ -25,81 +29,56 @@ function SendResetLinkForm() {
   };
 
   const onClickSendResetPassword = async () => {
-    // 비밀번호 초기화 링크 전송
     try {
       setLoading(true);
-
-      const result = await sendPasswordResetEmail(email);
+      await sendPasswordResetEmail(email);
+      onClose?.();
     } catch (error) {
-      console.log(error);
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
+
   return (
-    <>
-      <h2
-        style={{
-          marginBottom: "20px",
-          font: 'bold 24px / 29px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-        }}
-      >
-        Forgot password?
-      </h2>
-      <div
-        style={{
-          font: 'normal 14px/20px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-        }}
-      >
-        <p>
-          Enter the email address you used to sign up, and we’ll send you a
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm text-muted-foreground">
+          Enter the email address you used to sign up, and we&apos;ll send you a
           secure link to reset your password.
         </p>
       </div>
-      <div>
-        <label
-          htmlFor="email"
-          className="form-label"
-          style={{
-            display: "block",
-            margin: "14px 0 4px",
-            color: "#0d0c22",
-            font: 'bold 15px / 24px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-          }}
-        >
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="reset-email" className="text-sm font-semibold">
           Email
         </label>
-        <input
-          type="text"
-          id="email"
+        <Input
+          id="reset-email"
+          type="email"
           autoComplete="off"
-          className="form-control bg-transparent"
           value={email}
           onChange={onChangeEmail}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              onClickSendResetPassword();
-            }
+            if (e.key === "Enter") onClickSendResetPassword();
           }}
+          placeholder="you@example.com"
+          aria-invalid={!!emailError}
         />
         {emailError && (
-          <div className="small mt-1">
-            <span className={"text-danger"}>
-              <IconX size={"1.25rem"} />
-            </span>
-            <span className="mx-1">{emailError}</span>
-          </div>
+          <p className="flex items-center gap-1 text-xs text-destructive">
+            <XCircle className="size-3.5" />
+            {emailError}
+          </p>
         )}
       </div>
-
-      <button
-        className="btn btn-sm btn-dark mt-2 w-100"
+      <Button
         disabled={email === "" || emailError !== "" || loading}
         onClick={onClickSendResetPassword}
+        className="w-full"
       >
-        <span className="indicator-label">Send Reset Link</span>
-      </button>
-    </>
+        {loading ? "Sending..." : "Send Reset Link"}
+      </Button>
+    </div>
   );
 }
 

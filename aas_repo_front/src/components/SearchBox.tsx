@@ -1,4 +1,11 @@
+/*
+ * 파일명: src/components/SearchBox.tsx
+ * 설명: shadcn/ui 기반으로 재작성된 검색 박스 래퍼 컴포넌트.
+ */
 import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 
 interface SearchBoxProps {
   onSearch: () => void;
@@ -7,19 +14,17 @@ interface SearchBoxProps {
 
 const SearchBox: React.FC<SearchBoxProps> = ({ onSearch, children }) => {
   return (
-    <div className="card mb-7">
-      <div className="card-body">
-        <div className="d-flex align-items-center gap-4">
-          {/* 동적으로 주입되는 옵션 컴포넌트들 */}
+    <Card>
+      <CardContent className="py-4">
+        <div className="flex flex-wrap items-center gap-3">
           {children}
-
-          {/* Search 버튼 */}
-          <button type="button" className="btn btn-primary" onClick={onSearch}>
+          <Button type="button" onClick={onSearch}>
+            <Search className="size-4" data-icon="inline-start" />
             Search
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 };
 

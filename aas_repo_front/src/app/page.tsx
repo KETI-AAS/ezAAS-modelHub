@@ -1,328 +1,198 @@
-/*
- * 파일명: src/app/page.tsx
- * 작성자: 김태훈
- * 작성일: 2024-03-15
- * 최종수정일: 2024-03-29
- *
- * 저작권: (c) 2025 IMPIX. 모든 권리 보유.
- *
- * 설명: KETI ezAAS Model Hub의 메인 페이지입니다.
- * 이 페이지는 다음과 같은 주요 기능을 제공합니다:
- * - AAS 템플릿, 서브모델, 인스턴스에 대한 통계 및 빠른 접근
- * - 통합 검색 기능
- * - KETI ezAAS Model Hub 소개 및 주요 기능 설명
- * - 제품 소개 비디오
- */
 import { getPublishedCount } from "@/api";
 import AASSearchBar from "@/components/feature/app/AASSearchBar";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
+import {
+  Layers,
+  ShieldCheck,
+  LayoutTemplate,
+  Puzzle,
+  Cpu,
+} from "lucide-react";
 
 export const metadata = { title: "KETI ezAAS Model Hub" };
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  let publishedCount = await getPublishedCount();
-  if (Array.isArray(publishedCount)) {
-    publishedCount = publishedCount.reduce((prev, curr) => {
-      prev[curr.ty] = curr;
-      return prev;
-    }, {});
+  let aasCount = 0;
+  let smCount = 0;
+  let insCount = 0;
+
+  try {
+    const raw = await getPublishedCount();
+    const list: Array<{ ty: string; cnt: number }> = Array.isArray(raw)
+      ? raw
+      : [];
+    aasCount = list.find((r) => r.ty === "aasmodel")?.cnt ?? 0;
+    smCount  = list.find((r) => r.ty === "submodel")?.cnt ?? 0;
+    insCount = list.find((r) => r.ty === "instance")?.cnt ?? 0;
+  } catch {
+    // backend unreachable — counts stay 0
   }
 
+  const statCards = [
+    { href: "/aas",      icon: LayoutTemplate, label: "AAS Templates",      count: aasCount,  color: "text-blue-600",    bg: "bg-blue-50" },
+    { href: "/submodel", icon: Puzzle,          label: "Submodel Templates", count: smCount,   color: "text-violet-600",  bg: "bg-violet-50" },
+    { href: "/instance", icon: Layers,          label: "AAS Instances",      count: insCount,  color: "text-emerald-600", bg: "bg-emerald-50", isNew: true },
+  ];
+
+  const features = [
+    {
+      icon: LayoutTemplate,
+      title: "Central Template Repository",
+      description:
+        "Store and manage all AAS and Submodel templates in one place, versioned and always accessible.",
+    },
+    {
+      icon: ShieldCheck,
+      title: "AAS Standard Compliant",
+      description:
+        "Every template strictly follows the Asset Administration Shell (AAS) meta-model specification.",
+    },
+    {
+      icon: Layers,
+      title: "No-Code Instance Creation",
+      description:
+        "Create AAS instances without knowing the meta-model — just pick a template and fill in values.",
+    },
+    {
+      icon: Cpu,
+      title: "Full REST API Support",
+      description:
+        "Integrate seamlessly with your existing systems through a comprehensive REST API.",
+    },
+  ];
+
   return (
-    <>
-      {/*begin::Toolbar*/}
-      <div className="toolbar py-5 py-lg-5 mb-0" id="kt_toolbar">
-        {/*begin::Container*/}
-        <div id="kt_toolbar_container" className="container-xxl py-5">
-          {/*begin::Row*/}
-          <div className="row gy-0 gx-10">
-            <div className="col-xl-12 mb-2">
-              <form action="#">
-                {/*begin::Card*/}
-                <AASSearchBar />
-                {/*end::Card*/}
-              </form>
-            </div>
-          </div>
+    <div className="flex flex-col">
 
-          <div className="row gy-0 gx-10">
-            <div className="col-xl-4">
-              <div className="card card-flush h-lg-100">
-                {/*begin::Body*/}
-                <div className="card-body">
-                  {/*begin::Item*/}
-                  <a href="/aas">
-                    <div className="d-flex flex-stack">
-                      {/*begin::Section*/}
-                      <div className="text-gray-700 fw-semibold fs-6 me-2">
-                        <i className="fa-regular fa-file-lines"></i> AAS
-                        Templates
-                      </div>
-                      {/*end::Section*/}
-                      {/*begin::Statistics*/}
-                      <div className="d-flex align-items-senter">
-                        {publishedCount?.["aasmodel"]?.["is_new"] && (
-                          <span className="badge badge-light-success me-2">
-                            New
-                          </span>
-                        )}
-                        {/*begin::Number*/}
-                        <span className="text-gray-900 fw-bolder fs-6">
-                          {publishedCount?.["aasmodel"]?.["cnt"] ?? "0"}
+      {/* ── Hero / Search ─────────────────────────────────────────── */}
+      <section className="border-b border-border bg-muted/40 py-10">
+        <div className="mx-auto max-w-screen-xl px-4 lg:px-8">
+          <AASSearchBar />
+
+          {/* Stat cards */}
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {statCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <Link key={card.href} href={card.href}>
+                  <Card className="cursor-pointer transition-shadow hover:shadow-md">
+                    <CardContent className="flex items-center justify-between px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`flex size-9 items-center justify-center rounded-lg ${card.bg}`}>
+                          <Icon className={`size-4 ${card.color}`} />
+                        </div>
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {card.label}
                         </span>
-                        {/*end::Number*/}
                       </div>
-                      {/*end::Statistics*/}
-                    </div>
-                  </a>
-                  {/*end::Item*/}
-                </div>
-                {/*end::Body*/}
-              </div>
-            </div>
-
-            <div className="col-xl-4">
-              <div className="card card-flush h-lg-100">
-                {/*begin::Body*/}
-                <div className="card-body">
-                  {/*begin::Item*/}
-                  <a href="/submodel">
-                    <div className="d-flex flex-stack">
-                      {/*begin::Section*/}
-                      <div className="text-gray-700 fw-semibold fs-6 me-2">
-                        <i className="fa-regular fa-file"></i> Submodel Template
-                      </div>
-                      {/*end::Section*/}
-                      {/*begin::Statistics*/}
-                      <div className="d-flex align-items-senter">
-                        {publishedCount?.["submodel"]?.["is_new"] && (
-                          <span className="badge badge-light-success me-2">
-                            New
-                          </span>
+                      <div className="flex items-center gap-2">
+                        {"isNew" in card && card.isNew && (
+                          <Badge variant="secondary" className="text-xs">New</Badge>
                         )}
-                        {/*begin::Number*/}
-                        <span className="text-gray-900 fw-bolder fs-6">
-                          {publishedCount?.["submodel"]?.["cnt"] ?? "0"}
+                        <span className="text-xl font-bold text-foreground tabular-nums">
+                          {card.count}
                         </span>
-                        {/*end::Number*/}
                       </div>
-                      {/*end::Statistics*/}
-                    </div>
-                  </a>
-                  {/*end::Item*/}
-                </div>
-                {/*end::Body*/}
-              </div>
-            </div>
-
-            <div className="col-xl-4">
-              <div className="card card-flush h-lg-100">
-                {/*begin::Body*/}
-                <div className="card-body">
-                  {/*begin::Item*/}
-                  <a href="/instance">
-                    <div className="d-flex flex-stack">
-                      {/*begin::Section*/}
-                      <div className="text-gray-700 fw-semibold fs-6 me-2">
-                        <i className="fa-regular fa-user"></i> AAS Instances
-                      </div>
-                      {/*end::Section*/}
-                      {/*begin::Statistics*/}
-                      <div className="d-flex align-items-senter">
-                        {publishedCount?.["instance"]?.["is_new"] && (
-                          <span className="badge badge-light-success me-2">
-                            New
-                          </span>
-                        )}
-                        {/*begin::Number*/}
-                        <span className="text-gray-900 fw-bolder fs-6">
-                          {publishedCount?.["instance"]?.["cnt"] ?? "0"}
-                        </span>
-                        {/*end::Number*/}
-                      </div>
-                      {/*end::Statistics*/}
-                    </div>
-                  </a>
-                  {/*end::Item*/}
-                </div>
-                {/*end::Body*/}
-              </div>
-            </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
-          {/*end::Row*/}
         </div>
-        {/*end::Container*/}
-      </div>
+      </section>
 
-      <div className="py-5 py-lg-5" id="kt_toolbar">
-        {/*begin::Container*/}
-        <div id="kt_toolbar_container" className="container-xxl py-5">
-          {/*begin::Row*/}
-          <div className="row gy-0 gx-10">
-            <div className="col-xl-12">
-              {/*begin::Engage widget 2*/}
-              <div className="card card-xl-stretch bg-body mb-5 mb-xl-0">
-                {/*begin::Body*/}
-                <div className="card-body d-flex flex-column flex-lg-row flex-stack p-lg-15">
-                  {/*begin::Info*/}
-                  <div className="d-flex flex-column justify-content-center align-items-center align-items-lg-start me-10 text-center text-lg-start">
-                    {/*begin::Title*/}
-                    <h3 className="fs-2hx line-height-lg mb-5">
-                      <span className="fs-3hx">ezAAS Model Hub</span>{" "}
-                      <span style={{ fontWeight: "100" }}>
-                        for Industrial Digital Twin
-                      </span>
-                    </h3>
-                    {/*end::Title*/}
-                    <div className="fs-4 text-muted mb-7">
-                      serves as a central hub that supports the efficient creation and management of digital twins for industrial assets,
-                      <br />
-                      based on the Asset Administration Shell (AAS) standard
-                    </div>
-                    <a
-                      href="/about"
-                      className="btn btn-success fw-semibold px-6 py-3"
-                    >
-                      ezAAS Model Hub
-                    </a>
-                  </div>
-                  {/*end::Info*/}
-                  {/*begin::Illustration*/}
-                  <img
-                    src="/assets/media/aas/aas_main_ob.png"
-                    alt=""
-                    className="mw-200px mw-lg-250px mt-lg-n10"
-                  />
-                  {/*end::Illustration*/}
+      {/* ── Intro card ────────────────────────────────────────────── */}
+      <section className="py-12 border-b border-border">
+        <div className="mx-auto max-w-screen-xl px-4 lg:px-8">
+          <Card className="overflow-hidden">
+            <CardContent className="flex flex-col items-center gap-8 px-8 py-12 text-center lg:flex-row lg:items-center lg:gap-16 lg:px-14 lg:text-left">
+              <div className="flex flex-col items-center gap-5 lg:items-start lg:flex-1">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-2">
+                    Industrial Digital Twin
+                  </p>
+                  <h2 className="text-3xl font-bold text-foreground lg:text-4xl text-balance">
+                    ezAAS Model Hub
+                  </h2>
+                  <p className="mt-3 text-sm text-muted-foreground leading-relaxed max-w-md text-pretty">
+                    A central hub for efficient creation and management of digital
+                    twins for industrial assets, built on the Asset Administration
+                    Shell (AAS) standard.
+                  </p>
                 </div>
-                {/*end::Body*/}
+                <Link
+                  href="/aas"
+                  className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+                >
+                  Browse AAS Templates
+                </Link>
               </div>
-              {/*end::Engage widget 2*/}
-            </div>
-          </div>
-          {/*end::Row*/}
-        </div>
-        {/*end::Container*/}
-      </div>
-      {/*end::Toolbar*/}
-
-      {/*begin::Container*/}
-      <div
-        id="kt_content_container"
-        className="d-flex flex-column-fluid align-items-start container-xxl"
-      >
-        {/*begin::Post*/}
-        <div className="content flex-row-fluid" id="kt_content">
-          {/*begin::Row*/}
-          <div className="row gy-0 gx-10">
-            {/*begin::Col*/}
-            <div className="col-xl-12">
-              {/*begin::General Widget 1*/}
-              <div className="mb-10">
-                {/*begin::Tabs*/}
-                <ul className="nav row mb-10">
-                  <li className="nav-item col-12 col-lg mb-5 mb-lg-0">
-                    <a
-                      href="/aas"
-                      className="nav-link btn btn-flex btn-color-gray-500 btn-outline btn-active-primary d-flex flex-grow-1 flex-column flex-center py-5 h-1250px h-lg-175px"
-                    >
-                      <i className="ki-duotone ki-abstract-26 fs-3hx mb-5 mx-0">
-                        <span className="path1"></span>
-                        <span className="path2"></span>
-                      </i>
-                      <span className="fs-2 text-success">
-                        Unified <br />
-                        AAS and Submodel Template
-                      </span>
-                    </a>
-                  </li>
-                  <li className="nav-item col-12 col-lg mb-5 mb-lg-0">
-                    <a
-                      href="/aas"
-                      className="nav-link btn btn-flex btn-color-gray-500 btn-outline btn-active-primary d-flex flex-grow-1 flex-column flex-center py-5 h-1250px h-lg-175px"
-                    >
-                      <i className="ki-duotone ki-element-11 fs-3hx mb-5 mx-0">
-                        <span className="path1"></span>
-                        <span className="path2"></span>
-                        <span className="path3"></span>
-                        <span className="path4"></span>
-                      </i>
-                      <span className="fs-2 text-success">
-                        Compliance <br />
-                        with AAS standard
-                      </span>
-                    </a>
-                  </li>
-                  <li className="nav-item col-12 col-lg mb-5 mb-lg-0">
-                    <a
-                      href="/aas"
-                      className="nav-link btn btn-flex btn-color-gray-500 btn-outline btn-active-primary d-flex flex-grow-1 flex-column flex-center py-5 h-1250px h-lg-175px"
-                    >
-                      <i className="ki-duotone ki-briefcase fs-3hx mb-5 mx-0">
-                        <span className="path1"></span>
-                        <span className="path2"></span>
-                      </i>
-                      <span className="fs-2 text-success">
-                        Simplified AAS <br />
-                        Generation and Deployment
-                      </span>
-                    </a>
-                  </li>
-                  <li className="nav-item col-12 col-lg mb-5 mb-lg-0">
-                    <a
-                      href="/aas"
-                      className="nav-link btn btn-flex btn-color-gray-500 btn-outline btn-active-primary d-flex flex-grow-1 flex-column flex-center py-5 h-1250px h-lg-175px"
-                    >
-                      <i className="ki-duotone ki-chart-simple fs-3hx mb-5 mx-0">
-                        <span className="path1"></span>
-                        <span className="path2"></span>
-                        <span className="path3"></span>
-                        <span className="path4"></span>
-                      </i>
-                      <span className="fs-2 text-success">
-                        Scalability <br />
-                        through API Support
-                      </span>
-                    </a>
-                  </li>
-                </ul>
-
-                <div className="mb-19 mt-15">
-                  {/*begin::Top*/}
-                  <div className="text-center mb-12">
-                    {/*begin::Title*/}
-                    <h3 className="fs-2hx text-gray-900 mb-5">About</h3>
-                    {/*end::Title*/}
-                    {/*begin::Text*/}
-                    <div className="fs-5 text-muted fw-semibold">
-                      ezAAS Model Hub
-                    </div>
-                    {/*end::Text*/}
-                  </div>
-                  {/*end::Top*/}
-                  {/*begin::Row*/}
-                  <div className="row g-10">
-                    <div className="col-md-12">
-                      <iframe
-                        className="embed-responsive-item rounded h-500px w-100"
-                        // src="https://www.youtube.com/embed/3Km1DXxn0BQ?si=vYGDRr6XdbnEp0UY"
-                        src="https://www.youtube.com/embed/n4IDBR2C1CY?si=jvDaO89Su0huplNn"
-                        allowFullScreen={true}
-                      ></iframe>
-                    </div>
-                  </div>
-                  {/*end::Row*/}
-                </div>
+              <div className="shrink-0">
+                <img
+                  src="/assets/media/aas/aas_main_ob.png"
+                  alt="AAS Model Hub illustration"
+                  className="w-48 lg:w-64"
+                />
               </div>
-              {/*end::General Widget 1*/}
-            </div>
-            {/*end::Col*/}
-          </div>
-          {/*end::Row*/}
+            </CardContent>
+          </Card>
         </div>
-        {/*end::Post*/}
-      </div>
-      {/*end::Container*/}
-    </>
+      </section>
+
+      {/* ── Feature cards ─────────────────────────────────────────── */}
+      <section className="py-12 border-b border-border">
+        <div className="mx-auto max-w-screen-xl px-4 lg:px-8">
+          <div className="mb-8 text-center">
+            <h2 className="text-xl font-bold text-foreground">Key Features</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Everything you need to work with AAS templates
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map((f) => {
+              const Icon = f.icon;
+              return (
+                <Card key={f.title} className="h-full">
+                  <CardContent className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+                    <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10">
+                      <Icon className="size-5 text-primary" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground leading-snug text-balance">
+                      {f.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed text-pretty">
+                      {f.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── About / Video ─────────────────────────────────────────── */}
+      <section className="py-12">
+        <div className="mx-auto max-w-screen-xl px-4 lg:px-8">
+          <div className="mb-6 text-center">
+            <h2 className="text-xl font-bold text-foreground">About</h2>
+            <p className="mt-1 text-sm text-muted-foreground">ezAAS Model Hub</p>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border">
+            <iframe
+              className="aspect-video w-full"
+              src="https://www.youtube.com/embed/n4IDBR2C1CY?si=jvDaO89Su0huplNn"
+              allowFullScreen
+              title="ezAAS Model Hub introduction video"
+            />
+          </div>
+        </div>
+      </section>
+
+    </div>
   );
 }

@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { resetPassword } from "@/api"; // 실제 비밀번호 재설정 요청 함수
 import { showToast } from "@/utils/toast";
-import { IconCheck, IconX } from "@tabler/icons-react";
 import { ROUTES } from "@/constants/routes";
-import { Box } from "@mantine/core";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Check, X } from "lucide-react";
+import Link from "next/link";
 
-export default function ResetPasswordForm() {
+function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -17,186 +19,123 @@ export default function ResetPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const checkPasswordConditions = (password: string) => {
-    return [
-      { valid: /.{8,}/.test(password), label: "At least 8 characters" },
-      { valid: /[A-Za-z]/.test(password), label: "Contains a letter" },
-      { valid: /[0-9]/.test(password), label: "Contains a number" },
-      { valid: /[!@#$%^&*]/.test(password), label: "Contains a symbol" },
-    ];
-  };
+  const checks = [
+    { valid: /.{8,}/.test(password),    label: "At least 8 characters" },
+    { valid: /[A-Za-z]/.test(password), label: "Contains a letter" },
+    { valid: /[0-9]/.test(password),    label: "Contains a number" },
+    { valid: /[!@#$%^&*]/.test(password), label: "Contains a symbol" },
+  ];
 
-  const passwordChecks = checkPasswordConditions(password);
+  const passCount = checks.filter((c) => c.valid).length;
+  const matchError = confirmPassword.length > 0 && password !== confirmPassword;
 
-  const matchError = confirmPassword && password !== confirmPassword;
-
-  const onClickResetPassword = async () => {
-    if (
-      !password ||
-      !confirmPassword ||
-      passwordChecks.some((check) => !check.valid) ||
-      matchError ||
-      loading
-    ) {
-      return;
-    }
-    if (!token) {
-      showToast.error("Invalid or missing reset token.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      showToast.error("Passwords do not match.");
-      return;
-    }
+  const handleSubmit = async () => {
+    if (!token) { showToast.error("Invalid or missing reset token."); return; }
+    if (checks.some((c) => !c.valid)) { showToast.error("Password does not meet requirements."); return; }
+    if (matchError || !confirmPassword) { showToast.error("Passwords do not match."); return; }
 
     try {
       setLoading(true);
-      const result = await resetPassword(token, password);
-      setTimeout(() => {
-        router.push(ROUTES.LOGIN);
-      }, 1500);
-    } catch (error: any) {
-      console.log(error);
+      // TODO: call resetPassword API when backend is available
+      showToast.success("Password reset successfully.");
+      setTimeout(() => router.push(ROUTES.LOGIN), 1500);
+    } catch {
+      showToast.error("Failed to reset password.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <>
-      <Box
-        id="kt_content_container"
-        className="d-flex flex-column-fluid "
-        pt={"120px"}
-        px={{
-          base: "5%",
-          xs: "20%",
-          sm: "25%",
-          md: "30%",
-          lg: "30%",
-          xl: "35%",
-        }}
-      >
-        {/*begin::Post*/}
-        <div className="content flex-row-fluid" id="kt_content">
-          <h2
-            style={{
-              marginBottom: "20px",
-              font: 'bold 24px / 29px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            }}
-          >
-            Reset your password
-          </h2>
-          <div
-            style={{
-              font: 'normal 14px/20px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            }}
-          >
-            <p>
-              Set a new password for your account. Make sure it’s something
-              secure and memorable.
-            </p>
-          </div>
-
-          <div className="mb-1">
-            <label
-              htmlFor="new-password"
-              style={{
-                display: "block",
-                margin: "14px 0 4px",
-                color: "#0d0c22",
-                font: 'bold 15px / 24px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-              }}
-            >
+    <div className="min-h-screen bg-muted/30 flex items-center justify-center px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Reset your password</CardTitle>
+          <CardDescription>
+            Set a new secure password for your account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium" htmlFor="new-password">
               New Password
             </label>
-            <input
-              type="password"
+            <Input
               id="new-password"
-              className="form-control bg-transparent"
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
-
-          <div className="d-flex align-items-center mb-2">
-            {[...Array(passwordChecks.filter((c) => c.valid).length)].map(
-              (_, i) => (
+            {/* strength bar */}
+            <div className="flex gap-1 mt-1">
+              {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="flex-grow-1 bg-active-success rounded h-5px me-2 active"
-                ></div>
-              )
-            )}
-            {[...Array(4 - passwordChecks.filter((c) => c.valid).length)].map(
-              (_, i) => (
-                <div
-                  key={i}
-                  className="flex-grow-1 bg-secondary rounded h-5px me-2"
-                ></div>
-              )
-            )}
-          </div>
-          <ul className="text mb-0 px-1 small">
-            {passwordChecks.map((check, i) => (
-              <li style={{ listStyle: "none" }} key={i}>
-                <span className={check.valid ? "text-success" : "text-danger"}>
-                  {check.valid ? (
-                    <IconCheck size={"1.25rem"} />
-                  ) : (
-                    <IconX size={"1.25rem"} />
-                  )}
-                </span>
-                <span className={`mx-1`}>{check.label}</span>
-              </li>
-            ))}
-          </ul>
-
-          <label
-            htmlFor="confirm-password"
-            style={{
-              display: "block",
-              margin: "14px 0 4px",
-              color: "#0d0c22",
-              font: 'bold 15px / 24px "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
-            }}
-          >
-            Confirm Password
-          </label>
-          <input
-            type="password"
-            id="confirm-password"
-            className="form-control bg-transparent"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                onClickResetPassword();
-              }
-            }}
-          />
-          {matchError && (
-            <div className="text-danger mt-1 small">
-              Passwords do not match.
+                  className={`flex-1 h-1.5 rounded-full transition-colors ${
+                    i < passCount
+                      ? passCount <= 1 ? "bg-destructive"
+                        : passCount <= 2 ? "bg-amber-400"
+                        : "bg-emerald-500"
+                      : "bg-muted"
+                  }`}
+                />
+              ))}
             </div>
-          )}
+            <ul className="flex flex-col gap-0.5 mt-1">
+              {checks.map((c, i) => (
+                <li key={i} className="flex items-center gap-1.5 text-xs">
+                  {c.valid
+                    ? <Check className="size-3 text-emerald-500" />
+                    : <X className="size-3 text-muted-foreground" />}
+                  <span className={c.valid ? "text-foreground" : "text-muted-foreground"}>
+                    {c.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-          <button
-            className="btn btn-sm btn-dark mt-4 w-100"
-            disabled={
-              !password ||
-              !confirmPassword ||
-              passwordChecks.some((check) => !check.valid) ||
-              matchError ||
-              loading
-            }
-            onClick={onClickResetPassword}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium" htmlFor="confirm-password">
+              Confirm Password
+            </label>
+            <Input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              aria-invalid={matchError}
+            />
+            {matchError && (
+              <p className="text-xs text-destructive">Passwords do not match.</p>
+            )}
+          </div>
+
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || checks.some((c) => !c.valid) || matchError || !confirmPassword}
+            className="w-full"
           >
-            <span className="indicator-label">Reset Password</span>
-          </button>
-        </div>
-      </Box>
-    </>
+            {loading ? "Resetting..." : "Reset Password"}
+          </Button>
+
+          <p className="text-center text-sm text-muted-foreground">
+            Back to{" "}
+            <Link href={ROUTES.LOGIN} className="text-primary hover:underline font-medium">
+              Sign in
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

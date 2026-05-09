@@ -1,34 +1,31 @@
 /*
  * 파일명: src/components/Footer.tsx
- * 작성자: 김태훈
- * 작성일: 2024-03-15
- * 최종수정일: 2024-03-29
- * 
- * 저작권: (c) 2025 IMPIX. 모든 권리 보유.
- * 
- * 설명: 애플리케이션의 푸터 영역을 구성하는 컴포넌트입니다.
+ * 설명: shadcn/ui 기반으로 재작성된 푸터 컴포넌트.
  */
-
 function Footer() {
-    return <footer className="footer">
-        {/*begin::Footer*/}
-        <div className="footer py-4 d-flex flex-lg-column" id="kt_footer">
-            {/*begin::Container*/}
-            <div className="container-xxl d-flex flex-column flex-md-row align-items-center justify-content-between">
-                {/*begin::Copyright*/}
-                <div className="text-gray-900 order-2 order-md-1">
-                    <span className="text-muted fw-semibold me-1">2025&copy;</span>
-                    <a href="#" className="text-gray-800 text-hover-primary">ezAAS Model Hub</a>
-                </div>
-                {/*end::Copyright*/}
-                {/*begin::Menu*/}
-                
-                {/*end::Menu*/}
-            </div>
-            {/*end::Container*/}
+  return (
+    <footer className="mt-auto border-t border-border bg-background">
+      <div className="mx-auto max-w-screen-2xl px-4 py-5 lg:px-8">
+        <div className="flex flex-col items-center justify-between gap-2 md:flex-row">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium">2025</span>
+            {" "}
+            <a
+              href="/"
+              className="text-foreground transition-colors hover:text-primary"
+            >
+              ezAAS Model Hub
+            </a>
+            {" "}
+            — All rights reserved.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            KETI · Korea Electronics Technology Institute
+          </p>
         </div>
-        {/*end::Footer*/}
+      </div>
     </footer>
+  );
 }
-  
-export default Footer
+
+export default Footer;

@@ -1,528 +1,322 @@
-/*
- * 파일명: src/app/instance/page.tsx
- * 작성자: 김태훈
- * 작성일: 2024-03-15
- * 최종수정일: 2024-03-29
- *
- * 저작권: (c) 2025 IMPIX. 모든 권리 보유.
- *
- * 설명: AAS 인스턴스 목록 페이지를 제공합니다.
- */
-
 "use client";
 
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import Link from "next/link";
-import { getCodeList, exportModel, getInstanceList, downloadInstanceServer } from "@/api";
+import useSWR from "swr";
+import { getInstanceList, getCodeList, exportModel } from "@/api/index";
 import { ROUTES } from "@/constants/routes";
-import { Modal, Badge, Flex, Anchor, Menu, Text, SegmentedControl, Code, Box, Button } from "@mantine/core";
-import { useDisclosure } from '@mantine/hooks';
-import { useQuery } from "@tanstack/react-query";
-import {
-  MRT_PaginationState,
-  MRT_RowData,
-  useMantineReactTable,
-  MantineReactTable,
-} from "mantine-react-table";
-import CustomCombobox from "@/components/CustomCombobox";
-import SearchBox from "@/components/SearchBox";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/constants/roles";
-import CategoryCombobox from "@/components/CategoryCombobox";
-import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { Plus, Search, Download, Pencil, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
-export default function Page() {
-  const router = useRouter();
-  const { user, authToken } = useAuth();
+const PAGE_SIZE = 20;
 
-  const handlePortalClick = () => {
-    if (authToken) {
-      const portalUrl = `${process.env.NEXT_PUBLIC_PORTAL_URL}?token=${authToken.payload.jwt_access_token}`;
-      window.open(portalUrl, "_blank");
-    }
-  };
-  
-  // 검색 박스 상태 값
-  const [searchState, setSearchState] = useState({
-    category_seq: "all",
-    searchKey: "",
-  });
+export default function InstancePage() {
+  const { user } = useAuth();
 
-  // ▼▼▼ [1] System Manager(1)는 'all', User(3)는 'my' 기본값 설정 ▼▼▼
+  const [inputValue, setInputValue] = useState("");
+  const [searchKey, setSearchKey] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [searchMode, setSearchMode] = useState<"my" | "all">("all");
+  const [page, setPage] = useState(1);
 
-  const [opened, { open, close }] = useDisclosure(false);
-  const [serverModalData, setServerModalData] = useState<{ path: string; files: string[] } | null>(null);
+  const { data: categories = [] } = useSWR(
+    "categories-instance",
+    () => getCodeList("category")
+  );
 
-  useEffect(() => {
-    if (user) {
-      setSearchMode(user.user_group_seq === UserRole.User ? "my" : "all");
-    }
-  }, [user]);
+  const searchParams: Record<string, string> = {};
+  if (searchKey) searchParams.searchKey = searchKey;
+  if (searchMode === "my" && user) searchParams.user_seq = String(user.user_seq);
 
-  // enter or click button
-  const searchRef = useRef({
-    searchKey: "",
-  });
+  const { data: instanceData, isLoading, error } = useSWR(
+    ["instance-list", page, searchKey, categoryFilter, searchMode],
+    () =>
+      getInstanceList({
+        category_seq: categoryFilter === "all" ? "0" : categoryFilter,
+        pageNumber: page,
+        pageSize: PAGE_SIZE,
+        searchParams,
+      })
+  );
 
-  const [pagination, setPagination] = useState<MRT_PaginationState>({
-    pageIndex: 0,
-    pageSize: 10,
-  });
+  const instances: any[] = instanceData?.list ?? instanceData ?? [];
+  const totalCount: number = instanceData?.totalCount ?? instanceData?.total ?? instances.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const { data: categorys = [] } = useQuery({
-    queryKey: ["common/code", "category"],
-    queryFn: () => getCodeList("category"),
-  });
+  const handleSearch = useCallback(() => {
+    setSearchKey(inputValue);
+    setPage(1);
+  }, [inputValue]);
 
-
-  // 서버 생성 핸들러
-  const handleCreateServer = async (seq: number | string) => {
-    if(!confirm("서버 파일을 생성(또는 재생성) 하시겠습니까?")) return;
-    
-    await downloadInstanceServer(seq);
-    refetch(); // 리스트 갱신하여 버튼 상태 업데이트
-  };
-
-// 상세 보기 핸들러
-  const handleViewDetails = (row: any) => {
-  const path = row.server_path || "N/A";
-  const seq = row.instance_seq;
-  const name = row.instance_name || "model";
-
-  // 백엔드와 동일한 이름 정규화 규칙 적용
-  const safeName = name.trim().replace(/[\s/\\]/g, "_");
-  
-  // 백엔드에서 실제로 생성되는 3가지 파일로 목록 업데이트
-  const files = [
-    `${seq}_${safeName}_model.json`, // 모델 파일
-    "config.json",                   // 설정 파일
-    `${seq}_${safeName}_Dockerfile`  // 도커 빌드 파일
-  ];
-  
-  setServerModalData({ path, files });
-  open();
-};
-
-
-
-  const {
-    data: models,
-    isFetching: isFetchingModels,
-    isSuccess,
-    refetch,
-  } = useQuery({
-    queryKey: ["instanceList", pagination, searchState, searchMode, user?.user_seq],
-    queryFn: () => {
-      // API 호출 시 create_user_seq 파라미터
-      const params: any = {
-        ...searchState,
-        p: "p",
-      };
-
-      // 'my' 모드이고 유저 정보가 있을 때만 create_user_seq 전달
-      if (searchMode === "my" && user?.user_seq) {
-        params.create_user_seq = user.user_seq;
-      }
-
-      return getInstanceList({
-        category_seq: searchState.category_seq,
-        pageNumber: pagination.pageIndex + 1,
-        pageSize: pagination.pageSize,
-        searchParams: params,
-      });
-    },
-    enabled: !!user, // 유저 정보가 로드된 후 실행
-  });
-
-  const modelsData = models?.data ?? [];
-
-  const handleExport = (format, model) => {
-    exportModel({
-      modelType: "instance",
+  const handleExport = async (instance: any, format: "json" | "xml" | "aasx") => {
+    await exportModel({
+      modelType: "aasmodel",
+      modelSeq: instance.instance_seq,
       format,
-      modelSeq: model[`instance_seq`],
-      filename: model[`instance_name`],
-      source: "db",
+      filename: instance.instance_name,
     });
   };
 
-  const handleSearch = () => {
-    const keyword = searchRef.current.searchKey;
-
-    if (searchState.searchKey === keyword) {
-      refetch();
-    } else {
-      setSearchState((prev) => ({ ...prev, searchKey: keyword }));
-    }
-  };
-
-  const tableColumns = useMemo(() => {
-    const columns = [
-      {
-        accessorKey: "category_name",
-        header: "Category",
-        size: 110,
-      },
-      {
-        accessorKey: "instance_name",
-        header: "Instance Name",
-        Cell: ({ row }) => (
-          <div className="d-flex flex-column justify-content-center">
-            <Link
-              href={ROUTES.INSTANCE.VIEW(row.original.instance_seq)}
-              className="mb-1 text-gray-800 text-hover-primary"
-            >
-              {row.original.instance_name}
-            </Link>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "description",
-        header: "Description",
-      },
-      {
-        accessorKey: "aasmodel_template_id",
-        header: "Reference Template ID",
-      },
-      {
-        accessorKey: "verification",
-        header: "Verification Result",
-        size: 120,
-        Cell: ({ cell }) => {
-          return (
-            <Badge
-              mt={4}
-              mr={4}
-              color={cell.getValue() === "success" ? "green" : "red.4"}
-              radius="sm"
-            >
-              {cell.getValue()}
-            </Badge>
-          );
-        },
-      },
-    ];
-
-    if (user) {
-      // System Manager(1) 또는 Template Manager(2)는 UserID 확인 가능
-      if (user.user_group_seq <= UserRole.Approvedor) {
-        columns.push({
-          accessorKey: "user_id",
-          header: "UserID",
-          Cell: ({ row }) => (
-            <Text fz="sm" fw={600}>
-              {row.original.user_id}
-            </Text>
-          ),
-        });
-      }
-
-      // ▼▼▼ [3] Export 및 Edit 버튼 권한 ▼▼▼
-      // System Manager(1) 이거나 User(3)일 때 컬럼 표시
-      if (user.user_group_seq === UserRole.Manager || user.user_group_seq === UserRole.User) {
-        columns.push(
-          {
-            accessorKey: "actions", // 키 이름 변경
-            header: "Download / Edit",
-            size: 275,
-            Cell: ({ row }) => {
-              // 권한 체크: System Manager(1) 이거나 본인이 만든 글일 경우
-              const hasPermission = 
-                user.user_group_seq === UserRole.Manager || 
-                // 타입 불일치 방지를 위해 == 사용 (string/number 비교)
-                user.user_seq == row.original.create_user_seq;
-
-              if (!hasPermission) return <></>;
-
-              // 서버 생성 여부 확인
-              const isDeployed = !!row.original.server_created;
-
-              return (
-                <Flex gap="xs" align="center">
-                  {/* Export Button */}
-                  <Menu shadow="md" width={200}>
-                    <Menu.Target>
-                      <button
-                        className="btn btn-success btn-sm dropdown-toggle"
-                        type="button"
-                        data-bs-toggle="dropdown"
-                        aria-expanded="false"
-                      >
-                        Export
-                      </button>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      {["json", "xml", "aasx"].map((format) => (
-                        <Menu.Item
-                          key={format}
-                          onClick={() => handleExport(format, row.original)}
-                        >
-                          {format}
-                        </Menu.Item>
-                      ))}
-                    </Menu.Dropdown>
-                  </Menu>
-
-                  {/* Edit Button */}
-                  <Link
-                    href={ROUTES.INSTANCE.EDIT(row.original.instance_seq)}
-                    className="btn btn-light-success btn-sm"
-                  >
-                    <i className="fa-regular fa-pen-to-square"></i> Edit
-                  </Link>
-
-                  {/* POTAL Link Button */}
-                  <button
-                    onClick={handlePortalClick}
-                    className={`btn btn-sm ${isDeployed ? "btn-primary" : "btn-outline btn-outline-primary"}`}
-                  >
-                    <i className="fa-solid fa-server"></i> POTAL
-                  </button>
-
-
-                  {/* Server Context Menu Button  */}
-                  {/* <Menu shadow="md" width={200} position="bottom-end">
-                    <Menu.Target>
-                      <button
-                        className={`btn btn-sm ${isDeployed ? "btn-primary" : "btn-outline btn-outline-primary"} dropdown-toggle`}
-                        style={{ fontWeight: "bold" }}
-                        title="Server Actions"
-                      >
-                         {isDeployed ? "Deployed" : "Server"}
-                      </button>
-                    </Menu.Target>
-
-                    <Menu.Dropdown>
-                      <Menu.Label>Server Actions</Menu.Label>
-                      
-                      <Menu.Item 
-                        leftSection={<i className="fa-solid fa-server"></i>}
-                        onClick={() => handleCreateServer(row.original.instance_seq)}
-                      >
-                        {isDeployed ? "Re-create Server" : "Create Server"}
-                      </Menu.Item>
-
-                      <Menu.Item 
-                        leftSection={<i className="fa-solid fa-circle-info"></i>}
-                        onClick={() => handleViewDetails(row.original)}
-                        disabled={!isDeployed}
-                      >
-                        Server Details
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu> */}
-                </Flex>
-              );
-            },
-          }
-        );
-      }
-    }
-    return columns;
-  }, [user, isFetchingModels]);
-
-  const table = useMantineReactTable({
-    columns: tableColumns,
-    data: modelsData as MRT_RowData[],
-    rowCount: models?.recordsTotal ?? 0,
-    state: {
-      pagination,
-      showSkeletons: isFetchingModels,
-    },
-    enableColumnPinning: true,
-    initialState: {
-      columnPinning: {
-        // right: ["externalButtons"],
-      },
-    },
-    layoutMode: "grid",
-    paginationDisplayMode: "pages",
-    manualPagination: true,
-    enablePagination: true,
-    onPaginationChange: setPagination,
-    mantineTableBodyCellProps: {
-      styles: {
-        td: {
-          wordBreak: "break-all",
-          overflowWrap: "break-word",
-        },
-      },
-    },
-  });
+  const canCreate =
+    user &&
+    (user.user_group_seq === UserRole.User ||
+      user.user_group_seq === UserRole.Manager);
 
   return (
-    <div>
-      {/*begin::Toolbar*/}
-      <div className="toolbar py-5 py-lg-5" id="kt_toolbar">
-        {/*begin::Container*/}
-        <div
-          id="kt_toolbar_container"
-          className="container-xxl d-flex flex-stack flex-wrap"
-        >
-          {/*begin::Page title*/}
-          <div className="page-title d-flex flex-column me-3">
-            {/*begin::Title*/}
-            <h1 className="d-flex text-gray-900 fw-bold my-1 fs-3">
-              My AAS Instance
-            </h1>
-            {/*end::Title*/}
-            {/*begin::Breadcrumb*/}
-            <ul className="breadcrumb breadcrumb-dot fw-semibold text-gray-600 fs-7 my-1">
-              {/*begin::Item*/}
-              <li className="breadcrumb-item text-gray-600">
-                <Link href="/" className="text-gray-600 text-hover-primary">
-                  Home
-                </Link>
-              </li>
-              {/*end::Item*/}
-              {/*begin::Item*/}
-              <li className="breadcrumb-item text-gray-600">My AAS Instance</li>
-              {/*end::Item*/}
-            </ul>
-            {/*end::Breadcrumb*/}
-          </div>
-          {/*end::Page title*/}
-          {/*begin::Actions*/}
-          <div className="d-flex align-items-center py-2 py-md-1">
-            {/* ▼▼▼ [4] Create AAS 버튼 권한 수정 (System Manager 포함) ▼▼▼ */}
-            {user && (user.user_group_seq === UserRole.User || user.user_group_seq === UserRole.Manager) && (
-              <Link href="/instance/ins" className="btn btn-success fw-bold">
-                <i className="fa-solid fa-tablet"></i> Create AAS
+    <div className="flex flex-col">
+      {/* Page header */}
+      <div className="border-b border-border bg-background px-6 py-4">
+        <div className="mx-auto max-w-screen-2xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-foreground">My AAS Instance</h1>
+              <nav className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Link href="/" className="hover:text-foreground">Home</Link>
+                <span>/</span>
+                <span>My AAS Instance</span>
+              </nav>
+            </div>
+            {canCreate && (
+              <Link href="/instance/ins" className={cn(buttonVariants({ size: "sm" }))}>
+                <Plus data-icon="inline-start" />
+                Create AAS
               </Link>
             )}
-            {/*end::Button*/}
           </div>
-          {/*end::Actions*/}
         </div>
-        {/*end::Container*/}
       </div>
-      {/*end::Toolbar*/}
-      {/*begin::Container*/}
-      <div
-        id="kt_content_container"
-        className="d-flex flex-column-fluid align-items-start container-xxl"
-      >
-        {/*begin::Post*/}
-        <div className="content flex-row-fluid" id="kt_content">
-          <div>
-            <div>
-              <SearchBox onSearch={handleSearch}>
-                {/* ▼▼▼ [5] 화면에 SegmentedControl(필터 버튼) 추가 ▼▼▼ */}
-                {user && user.user_group_seq !== UserRole.User && (
-                  <SegmentedControl
-                    value={searchMode}
-                    onChange={(value: "my" | "all") => setSearchMode(value)}
-                    data={[
-                      { label: "My Instances", value: "my" },
-                      { label: "All Instances", value: "all" },
-                    ]}
-                    color="blue"
-                    className="me-4"
-                  />
+
+      {/* Filters */}
+      <div className="border-b border-border bg-muted/30 px-6 py-3">
+        <div className="mx-auto max-w-screen-2xl flex flex-wrap items-center gap-3">
+          {user && user.user_group_seq !== UserRole.User && (
+            <div className="flex rounded-md border border-border overflow-hidden text-sm">
+              {(["my", "all"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => { setSearchMode(mode); setPage(1); }}
+                  className={`px-3 py-1.5 capitalize transition-colors ${
+                    searchMode === mode
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {mode === "my" ? "My Instances" : "All Instances"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <Select
+            value={categoryFilter}
+            onValueChange={(val) => { setCategoryFilter(val ?? "all"); setPage(1); }}
+          >
+            <SelectTrigger className="h-8 w-44 text-sm">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((c: any) => (
+                <SelectItem key={c.category_seq ?? c.id} value={String(c.category_seq ?? c.id)}>
+                  {c.category_name ?? c.text}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative flex-1 min-w-[200px] max-w-sm flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                className="h-8 pl-8 text-sm"
+                placeholder="Please enter a search term"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              />
+            </div>
+            <Button size="sm" className="h-8" onClick={handleSearch}>
+              Search
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="mx-auto max-w-screen-2xl w-full px-6 py-6">
+        <p className="mb-4 text-sm text-muted-foreground">
+          {isLoading ? "Loading..." : `${totalCount} results found`}
+        </p>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive mb-4">
+            Failed to load data. Please check your connection or try again.
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded" />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-32">Category</TableHead>
+                  <TableHead>Instance Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Reference Template ID</TableHead>
+                  <TableHead className="w-32">Verification</TableHead>
+                  {user && user.user_group_seq <= UserRole.Approvedor && (
+                    <TableHead className="w-24">User</TableHead>
+                  )}
+                  {canCreate && (
+                    <TableHead className="w-44">Actions</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {instances.map((instance: any) => {
+                  const hasPermission =
+                    user &&
+                    (user.user_group_seq === UserRole.Manager ||
+                      String(user.user_seq) === String(instance.create_user_seq));
+
+                  return (
+                    <TableRow key={instance.instance_seq}>
+                      <TableCell className="text-sm">{instance.category_name}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={ROUTES.INSTANCE.VIEW(instance.instance_seq)}
+                          className="font-medium text-foreground hover:text-primary hover:underline"
+                        >
+                          {instance.instance_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {instance.description}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[180px]">
+                        {instance.aasmodel_template_id}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={instance.verification === "success" ? "default" : "destructive"}
+                        >
+                          {instance.verification}
+                        </Badge>
+                      </TableCell>
+                      {user && user.user_group_seq <= UserRole.Approvedor && (
+                        <TableCell className="text-sm">{instance.user_id}</TableCell>
+                      )}
+                      {canCreate && (
+                        <TableCell>
+                          {hasPermission && (
+                            <div className="flex items-center gap-1.5">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-xs hover:bg-accent hover:text-accent-foreground">
+                                  <Download className="size-3" />
+                                  Export
+                                  <ChevronDown className="size-3" />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {(["json", "xml", "aasx"] as const).map((fmt) => (
+                                    <DropdownMenuItem
+                                      key={fmt}
+                                      onClick={() => handleExport(instance, fmt)}
+                                    >
+                                      {fmt}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+
+                              <Link
+                                href={ROUTES.INSTANCE.EDIT(instance.instance_seq)}
+                                className={cn(
+                                  buttonVariants({ variant: "outline", size: "sm" }),
+                                  "h-7 text-xs"
+                                )}
+                              >
+                                <Pencil className="size-3" data-icon="inline-start" />
+                                Edit
+                              </Link>
+                            </div>
+                          )}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+                {instances.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                      No instances found.
+                    </TableCell>
+                  </TableRow>
                 )}
-                
-                <div className="col-lg-3 d-flex align-items-center mb-lg-0">
-                  <i className="ki-outline ki-element-11 fs-1 text-gray-500 me-1"></i>
-                  <CategoryCombobox
-                    className="border-0"
-                    code="aas_category"
-                    value={searchState.category_seq}
-                    setValue={(value) =>
-                      setSearchState((prev) => ({
-                        ...prev,
-                        category_seq: value ?? "all",
-                        searchKey: searchRef.current.searchKey,
-                      }))
-                    }
-                  />
-                </div>
-
-                {/* Search Input */}
-                <div className="position-relative w-md-400px me-md-2">
-                  <i className="ki-outline ki-magnifier fs-3 text-gray-500 position-absolute top-50 translate-middle ms-6"></i>
-                  <input
-                    type="text"
-                    className="form-control form-control-solid ps-10"
-                    name="search"
-                    onChange={(e) => {
-                      searchRef.current.searchKey = e.target.value;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key == "Enter") {
-                        handleSearch();
-                      }
-                    }}
-                    placeholder="Please enter a search term"
-                  />
-                </div>
-              </SearchBox>
-            </div>
-
-            <div className="d-flex flex-wrap flex-stack pb-7">
-              {/*begin::Title*/}
-              <div className="d-flex flex-wrap align-items-center my-1">
-                <h3 className="fw-bold me-5 my-1">
-                  {modelsData.length} results found
-                  <span className="text-gray-500 fs-6">↓</span>
-                </h3>
-              </div>
-              {/*end::Title*/}
-              {/*begin::Controls*/}
-            </div>
-
-            <div id="kt_project_users_table_pane">
-              <MantineReactTable table={table} />
-            </div>
-
-
-            {/* 서버 상세 정보 모달 */}
-            <Modal opened={opened} onClose={close} title={<Text fw={700} size="lg">✅ Server Deployed Details</Text>} centered>
-                {/* <Box mb="md">
-                    <Text size="sm" c="dimmed" mb={5} fw={700}>Server Directory Path:</Text>
-                    <Code block color="blue" style={{ wordBreak: 'break-all' }}>
-                        {serverModalData?.path}
-                    </Code>
-                </Box> */}
-                <Box mb="md">
-                    <Text size="sm" c="dimmed" mb={5} fw={700}>Server Link</Text>
-                    <Button
-                        component="a"
-                        href="https://ezmodel-hub.re.kr/portainer/#!/1/docker/images"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        color="blue"
-                        fullWidth
-                        h="40px"
-                        style={{ wordBreak: 'break-all', whiteSpace: 'normal' }}
-                    >
-                        Go to Server
-                    </Button>
-                </Box>
-
-                <Box>
-                    <Text size="sm" c="dimmed" mb={5} fw={700}>Generated Files:</Text>
-                    <Flex direction="column" gap="xs">
-                        {serverModalData?.files.map((file, idx) => (
-                            <Badge key={idx} variant="outline" color="gray" size="lg" leftSection="📄">
-                                {file}
-                            </Badge>
-                        ))}
-                    </Flex>
-                </Box>
-                
-                <Flex justify="flex-end" mt="xl">
-                    <Button onClick={close} variant="light">Close</Button>
-                </Flex>
-            </Modal>
-
-
+              </TableBody>
+            </Table>
           </div>
-        </div>
-        {/*end::Post*/}
+        )}
+
+        {totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
       </div>
-      {/*end::Container*/}
     </div>
   );
 }

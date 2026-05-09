@@ -1,7 +1,3 @@
-// src/types/api.ts
-
-import { User } from "@/app/user/page";
-
 export type ModelType = "aasmodel" | "submodel" | "instance";
 export type StatusType = "temporary" | "draft" | "published" | "deprecated";
 
@@ -9,11 +5,7 @@ export interface GetModelListParams {
   modelType: ModelType;
   pageNumber: number;
   pageSize: number;
-  searchParams?: {
-    searchKey?: string;
-    category_seq?: string;
-    p?: "p";
-  };
+  searchParams?: Record<string, string>;
   withToast?: boolean;
   errorThrow?: boolean;
 }
@@ -82,7 +74,7 @@ export interface GetPublishedListParams {
   type: "all" | ModelType;
   pageNumber: number;
   pageSize: number;
-  searchParams?: Record<string, any>;
+  searchParams?: Record<string, string>;
   withToast?: boolean;
   errorThrow?: boolean;
 }
@@ -105,28 +97,15 @@ export interface GetInstanceListParams {
   category_seq: string;
   pageNumber: number;
   pageSize: number;
-  searchParams?: Record<string, any>;
-
+  searchParams?: Record<string, string>;
   withToast?: boolean;
   errorThrow?: boolean;
 }
 
 export interface GetInstanceParams {
   instance_seq: string;
-
   withToast?: boolean;
   errorThrow?: boolean;
-}
-
-export interface InstanceSavePayload {
-  instance_seq: string;
-  instance_name: string;
-  description: string;
-  verification: string;
-  aasmodel_seq: string;
-  aasmodel_metadata: string;
-  submodels: any[];
-  status: string;
 }
 
 export interface VerifyInstanceParams {
@@ -136,9 +115,7 @@ export interface VerifyInstanceParams {
 }
 
 export interface UpsertInstanceParams {
-  //body: InstanceSavePayload;
-  formData: FormData; //2025.10.17 (File형식 대응)
-
+  formData: FormData;
   withToast?: boolean;
   errorThrow?: boolean;
 }
@@ -150,7 +127,6 @@ export interface AASInstance {
   verification: string;
   status: string;
   submodels: any[];
-
   aasmodel_seq: string;
   aasmodel_name: string;
   aasmodel_id: string;
@@ -158,9 +134,7 @@ export interface AASInstance {
   aasmodel_version: string;
   aasmodel_description: string;
   aasmodel_metadata: Record<string, any>;
-
   category_name: string;
-
   create_date: string;
   create_user_seq: string;
   last_mod_date: string;
@@ -170,13 +144,13 @@ export interface AASInstance {
 export interface GetUserListParams {
   pageNumber: number;
   pageSize: number;
-  searchParams?: Record<string, any>;
+  searchParams?: Record<string, string>;
   withToast?: boolean;
   errorThrow?: boolean;
 }
 
 export interface UpsertUserParams {
-  body: User;
+  body: Record<string, any>;
   withToast?: boolean;
   errorThrow?: boolean;
 }

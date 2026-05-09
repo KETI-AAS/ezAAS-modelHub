@@ -1,398 +1,286 @@
-/*
- * 파일명: src/pages/aas/index.tsx
- * 작성자: 김태훈
- * 작성일: 2024-03-15
- * 최종수정일: 2024-03-29
- *
- * 저작권: (c) 2025 IMPIX. 모든 권리 보유.
- *
- * 설명: AAS 템플릿 목록 페이지를 제공합니다.
- */
-
 "use client";
 
-import { exportModel, getCodeList, getModelList, verifyModel } from "@/api";
-import CategoryCombobox from "@/components/CategoryCombobox";
-import CustomCombobox from "@/components/CustomCombobox";
-import ModelCard from "@/components/feature/model/ModelCard";
-import FlexTable from "@/components/FlexTable";
-import SearchBox from "@/components/SearchBox";
-import { UserRole } from "@/constants/roles";
+import React, { useState, useCallback } from "react";
+import Link from "next/link";
+import useSWR from "swr";
+import { getModelList, getCodeList } from "@/api/index";
 import { ROUTES } from "@/constants/routes";
 import { useAuth } from "@/contexts/AuthContext";
-import { confirmSave } from "@/utils/modal";
-import { Badge, Flex, Anchor, Button, Menu, Text } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
-import { size } from "lodash";
+import { UserRole } from "@/constants/roles";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  MRT_PaginationState,
-  MRT_RowData,
-  useMantineReactTable,
-} from "mantine-react-table";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import React, { useState, useEffect, useRef, useMemo } from "react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { LayoutGrid, List, Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
 
-// export const metadata = { title: "AAS 템플릿 목록" };
+const PAGE_SIZE = 20;
 
-export default function Page() {
-  const router = useRouter();
+const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  published: "default",
+  draft: "secondary",
+  temporary: "outline",
+  deprecated: "destructive",
+};
+
+export default function SubmodelPage() {
   const { user } = useAuth();
 
-  useEffect(() => {
-    document.title = "Submodel 템플릿 목록";
-  }, []);
-  const modelType = "submodel";
+  const [searchKey, setSearchKey] = useState("");
+  const [inputValue, setInputValue] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [layoutType, setLayoutType] = useState<"grid" | "table">("grid");
+  const [page, setPage] = useState(1);
 
-  // 검색 박스 상태 값
-  const [searchState, setSearchState] = useState({
-    category_seq: "",
-    searchKey: "",
-  });
+  const { data: categories = [] } = useSWR(
+    "categories-submodel",
+    () => getCodeList("category")
+  );
 
-  // enter or click button
-  const searchRef = useRef({
-    searchKey: "",
-  });
+  const searchParams: Record<string, string> = {};
+  if (searchKey) searchParams.searchKey = searchKey;
+  if (categoryFilter !== "all") searchParams.category_seq = categoryFilter;
 
-  const [layoutType, setLayoutType] = useState<"flex" | "table">("flex");
-  const [pagination, setPagination] = useState<MRT_PaginationState>({
-    pageIndex: 0,
-    pageSize: 8,
-  });
-
-  const { data: categorys = [] } = useQuery({
-    queryKey: ["common/code"],
-    queryFn: () => getCodeList("category"),
-    // retry:false,
-  });
-
-  const {
-    data: models,
-    isFetching: isFetchingModels,
-    isSuccess,
-    refetch,
-  } = useQuery({
-    queryKey: [modelType, pagination, searchState],
-    queryFn: () =>
+  const { data: modelData, isLoading, error } = useSWR(
+    ["submodel-list", page, searchKey, categoryFilter],
+    () =>
       getModelList({
-        modelType,
-        pageNumber: pagination.pageIndex + 1,
-        pageSize: pagination.pageSize,
-        searchParams: {
-          ...searchState,
+        modelType: "submodel",
+        pageNumber: page,
+        pageSize: PAGE_SIZE,
+        searchParams,
+      })
+  );
 
-          p: "p",
-        },
-      }),
-  });
+  const models: any[] = modelData?.list ?? modelData ?? [];
+  const totalCount: number = modelData?.totalCount ?? modelData?.total ?? models.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const modelsData = models?.data ?? [];
+  const handleSearch = useCallback(() => {
+    setSearchKey(inputValue);
+    setPage(1);
+  }, [inputValue]);
 
-  const handleExport = (format, model) => {
-    exportModel({
-      modelType,
-      format,
-      modelSeq: model[`${modelType}_seq`],
-      filename: model[`${modelType}_name`],
-    });
+  const handleCategoryChange = (val: string | null) => {
+    setCategoryFilter(val ?? "all");
+    setPage(1);
   };
-
-  const handleSearch = () => {
-    const keyword = searchRef.current.searchKey;
-
-    if (searchState.searchKey === keyword) {
-      refetch();
-    } else {
-      setSearchState((prev) => ({ ...prev, searchKey: keyword }));
-    }
-  };
-
-  const renderGridItem = (model: any, i: number) => {
-    return (
-      <ModelCard
-        key={model[`${modelType}_seq`] ?? i}
-        model={model}
-        modelType={modelType}
-        i={i}
-      />
-    );
-  };
-
-  const tableColumns = useMemo(() => {
-    const columns = [
-      {
-        accessorKey: "status",
-        header: "Status",
-        size: 100,
-        Cell: ({ row }) => (
-          <Badge
-            mt={4}
-            mr={4}
-            color={
-              row.original.status === "temporary"
-                ? "blue"
-                : row.original.status === "draft"
-                  ? "red.4"
-                  : row.original.status === "published"
-                    ? "green"
-                    : "dark.1"
-            }
-            radius="sm"
-          >
-            {row.original.status}
-          </Badge>
-        ),
-      },
-      {
-        accessorKey: `${modelType}_name`,
-        header: "TEMPLATE NAME",
-        size: 150,
-        Cell: ({ row }) => (
-          <Flex align="center" gap="md">
-            <Anchor
-              onClick={(e) => {
-                e.preventDefault();
-                user != null &&
-                  router.push(
-                    ROUTES[modelType.toUpperCase()].VIEW(
-                      row.original[`${modelType}_seq`]
-                    )
-                  );
-              }}
-            >
-              <Text>{row.original[`${modelType}_name`]}</Text>
-            </Anchor>
-          </Flex>
-        ),
-      },
-      { accessorKey: "description", header: "description" },
-      { accessorKey: "category_name", header: "CATEGORY", size: 140 },
-      {
-        accessorKey: `${modelType}_semantic_id`,
-        header: "SEMANTIC ID",
-        size: 240,
-        Cell: ({ cell }) => {
-          return cell.getValue();
-        },
-      },
-    ];
-
-    if (user) {
-      columns.push({
-        accessorKey: "externalButtons",
-        header: "Download",
-        size: 135,
-        Cell: ({ row }) => (
-          <Flex align={"center"} gap={"xs"}>
-            {user?.user_group_seq <= UserRole.Approvedor && (
-              <button
-                // href={ROUTES.AASMODEL.EDIT(row.original[`${modelType}_seq`])}
-                className="btn btn-light-success btn-sm"
-                onClick={async () => {
-                  const { data: existSeq } = await verifyModel({
-                    modelType,
-                    modelId: row.original[`${modelType}_id`],
-                    errorThrow: false,
-                  });
-                  if (
-                    existSeq != undefined &&
-                    existSeq != "" &&
-                    existSeq != row.original[`${modelType}_seq`]
-                  ) {
-                    const isConfirm = await confirmSave(
-                      `This model is already being edited in sequence ${existSeq}. Would you like to continue with that task?`,
-                      {
-                        labels: {
-                          confirm: "Confirm",
-                          cancel: "Cancel",
-                        },
-                      }
-                    );
-                    if (isConfirm) {
-                      router.push(
-                        ROUTES[modelType.toUpperCase()].EDIT(existSeq)
-                      );
-                    }
-                  } else {
-                    router.push(
-                      ROUTES[modelType.toUpperCase()].EDIT(
-                        row.original[`${modelType}_seq`]
-                      )
-                    );
-                  }
-                }}
-              >
-                <i className="fa-regular fa-pen-to-square"></i> Edit
-              </button>
-            )}
-            {user != null && (
-              <Menu shadow="md" width={200}>
-                <Menu.Target>
-                  <button
-                    className="btn btn-success btn-sm dropdown-toggle"
-                    type="button"
-                    data-bs-toggle="dropdown"
-                    aria-expanded="false"
-                  >
-                    Export
-                  </button>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  {["json", "xml", "aasx"].map((format) => (
-                    <Menu.Item
-                      key={format}
-                      onClick={() => handleExport(format, row.original)}
-                    >
-                      {format}
-                    </Menu.Item>
-                  ))}
-                </Menu.Dropdown>
-              </Menu>
-            )}
-          </Flex>
-        ),
-      });
-    }
-    return columns;
-  }, [user, isFetchingModels]);
-
-  const table = useMantineReactTable({
-    columns: tableColumns,
-    data: modelsData as MRT_RowData[],
-    rowCount: models?.recordsTotal ?? 0,
-    state: {
-      pagination,
-      showSkeletons: isFetchingModels,
-    },
-    enableColumnPinning: true,
-    initialState: {
-      columnPinning: {
-        // right: ["externalButtons"],
-      },
-    },
-    layoutMode: "grid",
-    onPaginationChange: setPagination,
-    mantineTableBodyCellProps: {
-      styles: {
-        td: {
-          wordBreak: "break-all",
-          overflowWrap: "break-word",
-        },
-      },
-    },
-  });
 
   return (
-    <>
-      {/* begin::Toolbar */}
-      <div className="toolbar py-5 py-lg-5" id="kt_toolbar">
-        {/* begin::Container */}
-        <div
-          id="kt_toolbar_container"
-          className="container-xxl d-flex flex-stack flex-wrap"
-        >
-          {/* begin::Page title */}
-          <div className="page-title d-flex flex-column me-3">
-            {/* begin::Title */}
-            <h1 className="d-flex text-gray-900 fw-bold my-1 fs-3">
-              Submodel Template
-            </h1>
-            {/* end::Title */}
-            {/* begin::Breadcrumb */}
-            <ul className="breadcrumb breadcrumb-dot fw-semibold text-gray-600 fs-7 my-1">
-              {/* begin::Item */}
-              <li className="breadcrumb-item text-gray-600">
-                <Link href="/" className="text-gray-600 text-hover-primary">
-                  Home
-                </Link>
-              </li>
-              {/* end::Item */}
-              {/* begin::Item */}
-              <li className="breadcrumb-item text-gray-600">
-                Submodel Template
-              </li>
-              {/* end::Item */}
-            </ul>
-            {/* end::Breadcrumb */}
-          </div>
-          {/* end::Page title */}
-          {/* begin::Actions */}
-          <div className="d-flex align-items-center py-2 py-md-1">
-            {/* begin::Button */}
-            {user?.user_group_seq <= UserRole.Approvedor && (
+    <div className="flex flex-col">
+      {/* Page header */}
+      <div className="border-b border-border bg-background px-6 py-4">
+        <div className="mx-auto max-w-screen-2xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-foreground">Submodel Template</h1>
+              <nav className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Link href="/" className="hover:text-foreground">Home</Link>
+                <span>/</span>
+                <span>Submodel Template</span>
+              </nav>
+            </div>
+            {user && user.user_group_seq <= UserRole.Approvedor && (
               <Link
                 href={ROUTES.SUBMODEL.CREATE}
-                className="btn btn-success fw-bold"
+                className={cn(buttonVariants({ size: "sm" }))}
               >
-                <i className="fa-solid fa-tablet"></i>SM Register
+                <Plus data-icon="inline-start" />
+                SM Register
               </Link>
             )}
-            {/* end::Button */}
           </div>
-          {/* end::Actions */}
         </div>
-        {/* end::Container */}
       </div>
-      {/* end::Toolbar */}
-      {/* begin::Container */}
-      <div
-        id="kt_content_container"
-        className="d-flex flex-column-fluid align-items-start container-xxl"
-      >
-        {/* begin::Post */}
-        <div className="content flex-row-fluid" id="kt_content">
-          <div>
-            <div>
-              <SearchBox onSearch={handleSearch}>
-                <div className="col-lg-3 d-flex align-items-center mb-lg-0">
-                  <i className="ki-outline ki-element-11 fs-1 text-gray-500 me-1"></i>
 
-                  <CategoryCombobox
-                    className="border-0"
-                    code="sm_category"
-                    value={searchState.category_seq}
-                    setValue={(value) =>
-                      setSearchState((prev) => ({
-                        ...prev,
-                        category_seq: value ?? "",
-                        searchKey: searchRef.current.searchKey,
-                      }))
-                    }
-                  />
-                </div>
+      {/* Filters */}
+      <div className="border-b border-border bg-muted/30 px-6 py-3">
+        <div className="mx-auto max-w-screen-2xl flex flex-wrap items-center gap-3">
+          <Select value={categoryFilter} onValueChange={handleCategoryChange}>
+            <SelectTrigger className="h-8 w-44 text-sm">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((c: any) => (
+                <SelectItem key={c.category_seq ?? c.id} value={String(c.category_seq ?? c.id)}>
+                  {c.category_name ?? c.text}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-                {/* Search Input */}
-                <div className="position-relative w-md-400px me-md-2">
-                  <i className="ki-outline ki-magnifier fs-3 text-gray-500 position-absolute top-50 translate-middle ms-6"></i>
-                  <input
-                    type="text"
-                    className="form-control form-control-solid ps-10"
-                    name="search"
-                    onChange={(e) => {
-                      searchRef.current.searchKey = e.target.value;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key == "Enter") {
-                        handleSearch();
-                      }
-                    }}
-                    placeholder="Keyword Search"
-                  />
-                </div>
-              </SearchBox>
+          <div className="relative flex-1 min-w-[200px] max-w-sm flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                className="h-8 pl-8 text-sm"
+                placeholder="Keyword Search"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              />
             </div>
-            <FlexTable
-              layoutType={layoutType}
-              setLayoutType={setLayoutType}
-              renderGridItem={renderGridItem}
-              table={table}
-            />
+            <Button size="sm" className="h-8" onClick={handleSearch}>
+              Search
+            </Button>
+          </div>
+
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant={layoutType === "grid" ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => setLayoutType("grid")}
+            >
+              <LayoutGrid />
+            </Button>
+            <Button
+              variant={layoutType === "table" ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => setLayoutType("table")}
+            >
+              <List />
+            </Button>
           </div>
         </div>
-        {/* end::Post */}
       </div>
-      {/* end::Container */}
-    </>
+
+      {/* Content */}
+      <div className="mx-auto max-w-screen-2xl w-full px-6 py-6">
+        <p className="mb-4 text-sm text-muted-foreground">
+          {isLoading ? "Loading..." : `${totalCount} results found`}
+        </p>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive mb-4">
+            Failed to load data. Please check your connection or try again.
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-36 rounded-lg" />
+            ))}
+          </div>
+        ) : layoutType === "grid" ? (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {models.map((model: any) => (
+              <Link key={model.submodel_seq} href={ROUTES.SUBMODEL.VIEW(model.submodel_seq)}>
+                <Card className="h-full transition-shadow hover:shadow-md cursor-pointer">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-sm font-semibold leading-snug line-clamp-2">
+                        {model.submodel_name}
+                      </CardTitle>
+                      <Badge variant={STATUS_VARIANT[model.status] ?? "outline"} className="shrink-0 text-xs">
+                        {model.status_nm}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-muted-foreground space-y-1">
+                    <p className="line-clamp-2">{model.description}</p>
+                    <p className="font-medium text-foreground/70">{model.category_name}</p>
+                    <p className="font-mono truncate">{model.submodel_semantic_id}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+            {models.length === 0 && (
+              <p className="col-span-full text-center text-muted-foreground py-16">No templates found.</p>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-24">Status</TableHead>
+                  <TableHead>Template Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-36">Category</TableHead>
+                  <TableHead>Semantic ID</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {models.map((model: any) => (
+                  <TableRow key={model.submodel_seq}>
+                    <TableCell>
+                      <Badge variant={STATUS_VARIANT[model.status] ?? "outline"}>
+                        {model.status_nm}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        href={ROUTES.SUBMODEL.VIEW(model.submodel_seq)}
+                        className="font-medium text-foreground hover:text-primary hover:underline"
+                      >
+                        {model.submodel_name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {model.description}
+                    </TableCell>
+                    <TableCell className="text-sm">{model.category_name}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[240px]">
+                      {model.submodel_semantic_id}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {models.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                      No templates found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

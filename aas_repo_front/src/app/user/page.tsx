@@ -1,324 +1,261 @@
-/*
- * 파일명: src/app/user/page.tsx
- * 작성자: 김태훈
- * 작성일: 2024-03-15
- * 최종수정일: 2024-03-29
- *
- * 저작권: (c) 2025 IMPIX. 모든 권리 보유.
- *
- * 설명: 사용자 권한 관리 페이지를 제공합니다.
- */
-
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useState, useCallback } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { getCodeList, getUserList, upsertUser } from "@/api";
-import {
-  MantineReactTable,
-  MRT_PaginationState,
-  MRT_RowData,
-  useMantineReactTable,
-} from "mantine-react-table";
+import useSWR from "swr";
+import { getUserList } from "@/api/index";
 import { ROUTES } from "@/constants/routes";
-import { confirmSave } from "@/utils/modal";
-import CustomCombobox from "@/components/CustomCombobox";
-import SearchBox from "@/components/SearchBox";
-import { Badge } from "@mantine/core";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { Search, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+
+const PAGE_SIZE = 20;
 
 export interface User {
-  AAS_Seq_No: number;
+  AAS_Seq_No?: number;
   user_seq: number;
   user_id: string;
-  pw_hash: string;
+  pw_hash?: string;
   user_name: string;
   status: "Y" | "N";
+  status_nm: string;
   user_phonenumber: string | null;
-  start_timestamp: string; // ISO 타임스탬프 문자열
-  socialaccount_seq: number | null;
-  social_id: string | null;
-  social_in_id: string | null;
-  socialprovider_seq: number | null;
+  start_timestamp: string;
+  socialaccount_seq?: number | null;
+  social_id?: string | null;
+  social_in_id?: string | null;
+  socialprovider_seq?: number | null;
   socialprovider_name: string | null;
   user_group_seq: number | string;
   user_group_name: string;
   user_photo_url: string;
 }
 
-export default function Page() {
-  const { data: groups = [] } = useQuery({
-    queryKey: ["common/code", "group"],
-    queryFn: () => getCodeList("group"),
-  });
+const GROUP_OPTIONS = [
+  { id: "1", text: "System Manager" },
+  { id: "2", text: "Template Manager" },
+  { id: "3", text: "User" },
+];
 
-  // // 검색 박스 상태 값
-  const [searchState, setSearchState] = useState({
-    user_group_seq: "",
-    searchKey: "",
-  });
+export default function UserPage() {
+  const [inputValue, setInputValue] = useState("");
+  const [searchKey, setSearchKey] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
-  const [userState, setUserState] = useState({});
+  const searchParams: Record<string, string> = {};
+  if (searchKey) searchParams.searchKey = searchKey;
+  if (groupFilter !== "all") searchParams.user_group_seq = groupFilter;
 
-  const [pagination, setPagination] = useState<MRT_PaginationState>({
-    pageIndex: 0,
-    pageSize: 10,
-  });
-
-  // enter or click button
-  const searchRef = useRef({
-    searchKey: "",
-  });
-
-  const {
-    data: users,
-    isFetching: isFetchingUsers,
-    isSuccess,
-    refetch,
-  } = useQuery({
-    queryKey: [pagination, searchState],
-    queryFn: () =>
+  const { data: userData, isLoading, error } = useSWR(
+    ["user-list", page, searchKey, groupFilter],
+    () =>
       getUserList({
-        pageNumber: pagination.pageIndex + 1,
-        pageSize: pagination.pageSize,
-        searchParams: {
-          ...searchState,
-          p: "p",
-        },
-      }),
-  });
+        pageNumber: page,
+        pageSize: PAGE_SIZE,
+        searchParams,
+      })
+  );
 
-  const handleSearch = () => {
-    const keyword = searchRef.current.searchKey;
+  const users: User[] = userData?.list ?? userData ?? [];
+  const totalCount: number = userData?.totalCount ?? userData?.total ?? users.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-    if (searchState.searchKey === keyword) {
-      refetch();
-    } else {
-      setSearchState((prev) => ({ ...prev, searchKey: keyword }));
-    }
-  };
-
-  const usersData: User[] = users?.data ?? [];
-  const table = useMantineReactTable({
-    columns: [
-      {
-        accessorKey: "user_id",
-        header: "NAME / ID",
-        size: 300,
-        Cell: ({ row }) => {
-          return (
-            <div
-              className="d-flex align-items-center"
-              style={{ overflow: "scroll" }}
-            >
-              <div className="me-5 position-relative">
-                <div className="symbol symbol-35px symbol-circle">
-                  <img alt="Pic" src="/assets/media/avatars/blank.png" />
-                </div>
-              </div>
-              <div className="d-flex flex-column justify-content-center">
-                <Link
-                  href={ROUTES.USER.VIEW(row.original.user_seq)}
-                  className="mb-1 text-gray-800 text-hover-primary"
-                >
-                  {row.original.user_name}
-                </Link>
-                <div className="fw-semibold fs-7 text-gray-500">
-                  {row.original.user_id}
-                </div>
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "socialprovider_name",
-        header: "Social",
-      },
-      {
-        accessorKey: "start_timestamp",
-        header: "Create Date",
-        Cell: ({ cell }) =>
-          new Date(cell.getValue<string>()).toLocaleDateString(),
-      },
-      {
-        accessorKey: "user_group_name",
-        header: "Role",
-      },
-      {
-        accessorKey: "status_nm",
-        header: "Status",
-        Cell: ({ cell }) => {
-          return (
-            <>
-              <Badge
-                radius={"sm"}
-                color={cell.getValue() == "Activate" ? "green" : "red.4"}
-              >
-                {cell.getValue()}
-              </Badge>
-            </>
-          );
-        },
-      },
-      {
-        accessorKey: "edit",
-        header: "Edit",
-        size: 100,
-        Cell: ({ row }) => (
-          <Link
-            href={ROUTES.USER.EDIT(row.original.user_seq)}
-            className="btn btn-light-success btn-sm"
-          >
-            <i className="fa-regular fa-pen-to-square"></i> Edit
-          </Link>
-        ),
-      },
-    ],
-    data: usersData,
-    rowCount: users?.recordsTotal ?? 0,
-    state: {
-      pagination,
-      showSkeletons: isFetchingUsers,
-    },
-    enableColumnPinning: true,
-    initialState: {
-      columnPinning: {
-        // right: ["externalButtons"],
-      },
-    },
-    layoutMode: "grid",
-    paginationDisplayMode: "pages",
-    manualPagination: true,
-    enablePagination: true,
-    onPaginationChange: setPagination,
-  });
+  const handleSearch = useCallback(() => {
+    setSearchKey(inputValue);
+    setPage(1);
+  }, [inputValue]);
 
   return (
-    <>
-      {/*begin::Toolbar*/}
-      <div className="toolbar py-5 py-lg-5" id="kt_toolbar">
-        {/*begin::Container*/}
-        <div
-          id="kt_toolbar_container"
-          className="container-xxl d-flex flex-stack flex-wrap"
-        >
-          {/*begin::Page title*/}
-          <div className="page-title d-flex flex-column me-3">
-            {/*begin::Title*/}
-            <h1 className="d-flex text-gray-900 fw-bold my-1 fs-3">
-              Authority
-            </h1>
-            {/*end::Title*/}
-            {/*begin::Breadcrumb*/}
-            <ul className="breadcrumb breadcrumb-dot fw-semibold text-gray-600 fs-7 my-1">
-              {/*begin::Item*/}
-              <li className="breadcrumb-item text-gray-600">
-                <Link
-                  href={ROUTES.HOME}
-                  className="text-gray-600 text-hover-primary"
-                >
-                  Home
-                </Link>
-              </li>
-              {/*end::Item*/}
-              {/*begin::Item*/}
-              <li className="breadcrumb-item text-gray-600">Authority</li>
-              {/*end::Item*/}
-            </ul>
-            {/*end::Breadcrumb*/}
-          </div>
-          {/*end::Page title*/}
-          {/*begin::Actions*/}
-          <div className="d-flex align-items-center py-2 py-md-1">
-            {/*begin::Button*/}
-            {/*end::Button*/}
-          </div>
-          {/*end::Actions*/}
-        </div>
-        {/*end::Container*/}
-      </div>
-      {/*end::Toolbar*/}
-      {/*begin::Container*/}
-      <div
-        id="kt_content_container"
-        className="d-flex flex-column-fluid align-items-start container-xxl"
-      >
-        {/*begin::Post*/}
-        <div className="content flex-row-fluid" id="kt_content">
-          <div>
+    <div className="flex flex-col">
+      {/* Page header */}
+      <div className="border-b border-border bg-background px-6 py-4">
+        <div className="mx-auto max-w-screen-2xl">
+          <div className="flex items-center justify-between">
             <div>
-              <SearchBox onSearch={handleSearch}>
-                <div className="col-lg-3 d-flex align-items-center mb-lg-0">
-                  <i className="ki-outline ki-element-11 fs-1 text-gray-500 me-1"></i>
-
-                  <CustomCombobox
-                    border={false}
-                    className="form-control border-0 flex-grow-1"
-                    data={[{ id: "all", text: "Group All" }, ...groups]}
-                    mappingFn={(item) => ({ value: item.id, label: item.text })}
-                    value={searchState.user_group_seq}
-                    onChange={(value) =>
-                      setSearchState((prev) => ({
-                        ...prev,
-                        user_group_seq: value ?? "",
-                        searchKey: searchRef.current.searchKey,
-                      }))
-                    }
-                  />
-                </div>
-
-                {/* Search Input */}
-                <div className="position-relative w-md-400px me-md-2">
-                  <i className="ki-outline ki-magnifier fs-3 text-gray-500 position-absolute top-50 translate-middle ms-6"></i>
-                  <input
-                    type="text"
-                    className="form-control form-control-solid ps-10"
-                    name="search"
-                    onChange={(e) => {
-                      searchRef.current.searchKey = e.target.value;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key == "Enter") {
-                        handleSearch();
-                      }
-                    }}
-                    placeholder="Please enter a search term"
-                  />
-                </div>
-              </SearchBox>
-            </div>
-
-            <div className="d-flex flex-wrap flex-stack pb-7">
-              {/*begin::Title*/}
-              <div className="d-flex flex-wrap align-items-center my-1">
-                <h3 className="fw-bold me-5 my-1">
-                  5 results found
-                  <span className="text-gray-500 fs-6">↓</span>
-                </h3>
-              </div>
-              {/*end::Title*/}
-            </div>
-
-            <div id="kt_project_users_table_pane">
-              {/*begin::Card*/}
-              <div className="card card-flush">
-                {/*begin::Card body*/}
-                <div className="card-body pt-0">
-                  <MantineReactTable table={table} />
-                  {/*begin::Table container*/}
-
-                  {/*end::Table container*/}
-                </div>
-                {/*end::Card body*/}
-              </div>
-              {/*end::Card*/}
+              <h1 className="text-xl font-bold text-foreground">Authority</h1>
+              <nav className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Link href={ROUTES.HOME} className="hover:text-foreground">Home</Link>
+                <span>/</span>
+                <span>Authority</span>
+              </nav>
             </div>
           </div>
         </div>
-        {/*end::Post*/}
       </div>
-      {/*end::Container*/}
-    </>
+
+      {/* Filters */}
+      <div className="border-b border-border bg-muted/30 px-6 py-3">
+        <div className="mx-auto max-w-screen-2xl flex flex-wrap items-center gap-3">
+          <Select
+            value={groupFilter}
+            onValueChange={(val) => { setGroupFilter(val ?? "all"); setPage(1); }}
+          >
+            <SelectTrigger className="h-8 w-44 text-sm">
+              <SelectValue placeholder="Group All" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Group All</SelectItem>
+              {GROUP_OPTIONS.map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.text}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative flex-1 min-w-[200px] max-w-sm flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                className="h-8 pl-8 text-sm"
+                placeholder="Please enter a search term"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              />
+            </div>
+            <Button size="sm" className="h-8" onClick={handleSearch}>
+              Search
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="mx-auto max-w-screen-2xl w-full px-6 py-6">
+        <p className="mb-4 text-sm text-muted-foreground">
+          {isLoading ? "Loading..." : `${totalCount} results found`}
+        </p>
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive mb-4">
+            Failed to load data. Please check your connection or try again.
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded" />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name / ID</TableHead>
+                  <TableHead className="w-28">Social</TableHead>
+                  <TableHead className="w-32">Create Date</TableHead>
+                  <TableHead className="w-36">Role</TableHead>
+                  <TableHead className="w-24">Status</TableHead>
+                  <TableHead className="w-16">Edit</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map((u) => (
+                  <TableRow key={u.user_seq}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="size-8">
+                          <AvatarFallback className="text-xs">
+                            {u.user_name.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col">
+                          <Link
+                            href={ROUTES.USER.VIEW(String(u.user_seq))}
+                            className="text-sm font-medium text-foreground hover:text-primary hover:underline"
+                          >
+                            {u.user_name}
+                          </Link>
+                          <span className="text-xs text-muted-foreground">{u.user_id}</span>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {u.socialprovider_name ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {new Date(u.start_timestamp).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-sm">{u.user_group_name}</TableCell>
+                    <TableCell>
+                      <Badge variant={u.status === "Y" ? "default" : "destructive"}>
+                        {u.status_nm}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        href={ROUTES.USER.EDIT(String(u.user_seq))}
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "sm" }),
+                          "h-7 text-xs"
+                        )}
+                      >
+                        <Pencil className="size-3" data-icon="inline-start" />
+                        Edit
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {users.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                      No users found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
