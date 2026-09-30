@@ -16,3 +16,98 @@ node_modules/
 .next/
 dist/
 build/
+
+# ============================================================
+#  aas-hub  루트 .gitignore
+#  방침: 소스코드와 설정 "템플릿"만 버전관리한다.
+#        런타임 바이너리 / 외부 라이브러리 / 시크릿 / 로그 / 캐시는 제외.
+# ============================================================
+
+# ---------- 시크릿 (반드시 커밋 금지) ----------
+# 실제 값이 든 설정 파일. config.example.yaml 을 복사해서 만들 것.
+aas_repo_back/config/config.yaml
+aas_repo_back/config/config.*.yaml
+!aas_repo_back/config/config.example.yaml
+.env
+.env.*
+!.env.example
+# 프론트 로컬개발 기본값은 커밋 (NEXT_PUBLIC_* 은 브라우저 번들에 노출되는 값이라 시크릿 아님)
+!aas_repo_front/.env.development
+!aas_repo_front/.env.production.example
+*.pem
+*.key
+!public/**/*.key
+
+# ---------- 런타임 바이너리 / 외부 라이브러리 ----------
+# 번들 JDK (OpenJDK 17.0.2 x86_64, 약 296MB) — docs/SETUP.md 참고
+aas_repo_back/jdk/
+# Eclipse BaSyx AAS Environment shaded jar (약 86MB) — 외부 라이브러리 아티팩트
+aas_repo_back/basyx/*.jar
+!aas_repo_back/basyx/.gitkeep
+
+# ---------- Python ----------
+venv/
+venv*/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pyvenv.cfg
+
+# ---------- Node / Next.js ----------
+node_modules/
+.next/
+out/
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+.turbo/
+.pnp.*
+.yarn/
+
+# ---------- 로그 / 크래시 덤프 ----------
+*.log
+logs/
+nohup.out
+hs_err_pid*.log
+replay_pid*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- 업로드 / 임시 데이터 ----------
+.tmp/
+tmp/
+temp/
+aas_files/
+*.aasx.bak
+
+# ---------- 에디터 / OS ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# ---------- AI 툴링 상태 (로컬 전용) ----------
+.omc/
+.claude/settings.local.json
+.agents/
+.ai_docs/
+.docker-tmp/
+
+# Database contents, backups and local certificates must not be published
+aas_repo_docker/data/
+*.dump
+*.backup
+*.sql.gz
+*.p12
+*.pfx

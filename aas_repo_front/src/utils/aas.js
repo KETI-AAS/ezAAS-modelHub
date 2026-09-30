@@ -72,6 +72,12 @@ export const parsingSub = (obj) => {
     contentType: obj.contentType,
     semanticId: obj.semanticId,
     valueType: obj.valueType,
+    // [추가] Entity 관련 필드
+    entityType: obj.entityType,
+    globalAssetId: obj.globalAssetId,
+    // [추가] RelationshipElement 관련 필드
+    first: obj.first,
+    second: obj.second,
   };
 
   treeNode["Submodel"] = tempNode;
@@ -135,6 +141,12 @@ export function parsingAAS(json) {
       contentType: obj.contentType,
       semanticId: obj.semanticId,
       valueType: obj.valueType,
+      // [추가] Entity 관련 필드
+      entityType: obj.entityType,
+      globalAssetId: obj.globalAssetId,
+      // [추가] RelationshipElement 관련 필드
+      first: obj.first,
+      second: obj.second,
     };
 
     treeNode["Submodel"] = tempNode;

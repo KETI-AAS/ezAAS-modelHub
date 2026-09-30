@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Body, Request
+from pydantic import BaseModel
 from app.aasSubModelModule import *
-from typing import Annotated, Union, Optional
+from typing import Annotated, Union, Optional, Any
+from starlette.formparsers import MultiPartParser
 from middleware.authMiddleware import verify_token
 from app.aasInstanceModule import *
 import json
@@ -53,14 +55,40 @@ async def instanceInfo(header:Annotated[dict, Depends(verify_token)], instance_s
 
 
 # AAS Instance Save
+# @router.post("/data", tags=['INSTANCE'], summary='INSTANCE', description="INSTANCE SAVE")
+# async def instanceSave(
+#     header: Annotated[dict, Depends(verify_token)],
+#     body: bytes = Form(...),
+#     attachments: list[UploadFile] = File(default=None)
+# ):
+#     body_dict = json.loads(body.decode('utf-8'))
+#     return await instanceSaveEvent(header, body_dict, attachments)
+
 @router.post("/data", tags=['INSTANCE'], summary='INSTANCE', description="INSTANCE SAVE")
 async def instanceSave(
     header: Annotated[dict, Depends(verify_token)],
-    body: bytes = Form(...),
-    attachments: list[UploadFile] = File(default=None)
+    request: Request
 ):
-    body_dict = json.loads(body.decode('utf-8'))
+    content_type = request.headers.get("content-type", "")
+    
+    if "multipart/form-data" in content_type:
+        parser = MultiPartParser(request.headers, request.stream())
+        form = await parser.parse()
+        
+        body_raw = form.get("body")
+        body_dict = json.loads(body_raw if isinstance(body_raw, str) else body_raw.decode('utf-8'))
+        attachments = form.getlist("attachments") or None
+    else:
+        # JSON only
+        body_dict = await request.json()
+        attachments = None
+    
     return await instanceSaveEvent(header, body_dict, attachments)
+
+
+
+
+
 
 
 # AAS Instance Delete

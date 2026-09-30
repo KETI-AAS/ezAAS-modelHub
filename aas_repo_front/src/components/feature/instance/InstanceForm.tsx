@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Accordion,
+  Accordion as MantineAccordion,
   Badge,
   Card,
   Divider,
@@ -16,7 +16,11 @@ import {
   Tabs,
   Title,
   Text,
+  TextInput, Textarea, Group, Button, Stack
 } from "@mantine/core";
+
+
+
 import { useDisclosure } from "@mantine/hooks";
 import { v4 as uuidv4 } from 'uuid';
 import CustomCombobox from "@/components/CustomCombobox";
@@ -50,6 +54,11 @@ import VerifyDetailView from "@/components/VerifyDetailView";
 import CategoryCombobox from "@/components/CategoryCombobox";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/constants/roles";
+import {
+  mergeMetadataWithStagedChanges,
+  validateAasMetadata,
+  type ValidationErrors,
+} from "@/utils/validation";
 
 import {
   Chart as ChartJS,
@@ -65,6 +74,8 @@ import BarChart from "@/components/BarChart";
 import CarbonFootprintView from "./CarbonFootprintView";
 import TechnicalDataView from "./TechnicalDataView";
 import HandoverDocumentationView from "./HandoverDocumentationView";
+
+
 
 
 type AASInstanceInsProps = {
@@ -105,11 +116,123 @@ const initialState = {
     aasmodel_metadata: {},
   },
 };
+
+const validateBasicInfo = (state: {
+  instance_name: string;
+  description: string;
+}) => {
+  const errors: Record<string, string> = {};
+
+  if (!state.instance_name?.trim()) {
+    errors.instance_name = "Instance name을 입력해주세요.";
+  }
+
+  return errors;
+};
+
 export default function InstanceForm({
   mode,
   instance,
   combinedAAS,
 }: AASInstanceInsProps) {
+
+  const MODEL_HUB_DOMAIN = "https://ezmodel-hub.re.kr";
+  const [createCDOpened, { open: openCreateCD, close: closeCreateCD }] = useDisclosure(false);
+  const [newCDState, setNewCDState] = useState({
+    idShort: "",
+    valueType: "REAL_MEASURE", // 기본값
+    unit: "",
+    definition: "",
+    id: "",
+    isCaseOf: "",
+  });
+
+  // 속성 이름 입력 시 ID를 자동으로 생성하는 핸들러
+  const handleIdShortChange = (val: string) => {
+    setNewCDState((prev) => ({
+      ...prev,
+      idShort: val,
+      id: val ? `${MODEL_HUB_DOMAIN}/cd/${val}` : "", // 자동 부여 로직
+    }));
+  };
+
+  const valueTypeOptions = [
+    { value: "REAL_MEASURE", label: "REAL_MEASURE" },
+    { value: "STRING", label: "STRING" },
+    { value: "INTEGER", label: "INTEGER" },
+    { value: "BOOLEAN", label: "BOOLEAN" },
+  ];
+
+  
+
+  const handleCreateCDSave = () => {
+    if (!newCDState.idShort || !newCDState.id) {
+      showToast.error("속성 이름과 ID는 필수 항목입니다.");
+      return;
+    }
+
+    // const newCDObject = {
+    //   id: newCDState.id,
+    //   idShort: newCDState.idShort,
+    //   modelType: "ConceptDescription",
+    //   description: [{ language: "ko", text: newCDState.definition }],
+    //   // AAS 규격에 따른 데이터 사양 구조 (필요에 따라 조정)
+    //   embeddedDataSpecifications: [
+    //     {
+    //       dataSpecificationContent: {
+    //         valueType: newCDState.valueType,
+    //         unit: newCDState.unit,
+    //       },
+    //     },
+    //   ],
+    //   isCaseOf: newCDState.isCaseOf ? [{ keys: [{ type: "GlobalReference", value: newCDState.isCaseOf }] }] : [],
+    // };
+
+    //2026.06.18 CD생성 IEC 61360 표준화 보강
+    const newCDObject = {
+      id: newCDState.id,
+      idShort: newCDState.idShort,
+      modelType: "ConceptDescription",
+      description: [{ language: "ko", text: newCDState.definition || " " }],
+      embeddedDataSpecifications: [
+        {
+          dataSpecification: {
+            type: "ModelReference",
+            keys: [
+              {
+                type: "ConceptDescription", 
+                value: "https://admin-shell.io/DataSpecificationTemplates/DataSpecificationIec61360/3"
+              }
+            ]
+          },
+          dataSpecificationContent: {
+            modelType: "DataSpecificationIec61360",
+            valueType: newCDState.valueType,
+            unit: newCDState.unit || " ",
+            preferredName: [
+              { language: "ko", text: newCDState.idShort },
+              { language: "en", text: newCDState.idShort }
+            ],
+            definition: [{ language: "ko", text: newCDState.definition || " " }]
+          },
+        },
+      ],
+      isCaseOf: newCDState.isCaseOf ? [{ keys: [{ type: "GlobalReference", value: newCDState.isCaseOf }] }] : [],
+    };
+
+    setAasmodel((prev) => {
+      const newMetadata = _.cloneDeep(prev.aasmodel_metadata);
+      if (!newMetadata.conceptDescriptions) newMetadata.conceptDescriptions = [];
+      newMetadata.conceptDescriptions.push(newCDObject);
+      return { ...prev, aasmodel_metadata: newMetadata };
+    });
+
+    showToast.success(`Concept Description '${newCDState.idShort}'가 생성되었습니다.`);
+    setNewCDState({ idShort: "", valueType: "REAL_MEASURE", unit: "", definition: "", id: "", isCaseOf: "" });
+    closeCreateCD();
+  };
+
+
   const router = useRouter();
   
     ChartJS.register(
@@ -145,12 +268,16 @@ export default function InstanceForm({
 
   const [opened, { open, close }] = useDisclosure(false);
 
+  const [cdConnectModalOpened, { open: openCdConnect, close: closeCdConnect }] = useDisclosure(false);
+  const [modalSelectedCD, setModalSelectedCD] = useState<any | null>(null);
+
   const treeDataRef = useRef<any>({});
 
   const [modelType, setModelType] = useState("");
   const [modelSeq, setModelSeq] = useState("");
   const [aasmodel, setAasmodel] = useState(initialState.aasmodel);
   const [treeData, setTreeData] = useState<any[] | undefined>(undefined);
+  const [copiedElement, setCopiedElement] = useState<any>(null);
 
   const verificationRef = useRef<() => void>(null);
   const [verificationActive, setVerificationActive] = useState<any>();
@@ -162,6 +289,7 @@ export default function InstanceForm({
   const [inputState, setInputState] = useState<{
     instance_name: string;
     description: string;
+    company_url: string;
     verification: "fail" | "success" | undefined;
     verification_log?: {
       total: number;
@@ -171,8 +299,11 @@ export default function InstanceForm({
   }>({
     instance_name: "",
     description: "",
+    company_url: "",
     verification: undefined,
   });
+  const [basicInfoErrors, setBasicInfoErrors] = useState<Record<string, string>>({});
+  const [metadataErrors, setMetadataErrors] = useState<ValidationErrors>({});
 
   const [pagination, setPagination] = useState<MRT_PaginationState>({
     pageIndex: 0,
@@ -186,6 +317,58 @@ export default function InstanceForm({
   } | null>(null);
   const [selectedHierarchyNode, setSelectedHierarchyNode] = useState<any>(null);
   const [selectedCDNode, setSelectedCDNode] = useState<any | null>(null);
+
+  const getMergedMetadataSnapshot = (metadata = aasmodel.aasmodel_metadata) =>
+    mergeMetadataWithStagedChanges(metadata, treeDataRef.current);
+
+  const runValidation = (metadata = aasmodel.aasmodel_metadata, basicState = inputState) => {
+    const mergedMetadata = getMergedMetadataSnapshot(metadata);
+    const nextBasicErrors = validateBasicInfo(basicState);
+    const nextMetadataErrors = validateAasMetadata(mergedMetadata);
+
+    setBasicInfoErrors(nextBasicErrors);
+    setMetadataErrors(nextMetadataErrors);
+
+    return {
+      mergedMetadata,
+      nextBasicErrors,
+      nextMetadataErrors,
+      isValid:
+        Object.keys(nextBasicErrors).length === 0 &&
+        Object.keys(nextMetadataErrors).length === 0,
+    };
+  };
+
+  const moveToStep = (targetStep: number) => {
+    if (targetStep <= activeStep) {
+      setActiveStep(targetStep);
+      return true;
+    }
+
+    if (activeStep === 0) {
+      const { nextBasicErrors } = runValidation();
+      if (Object.keys(nextBasicErrors).length > 0) {
+        showToast.error("기본 정보를 먼저 확인해주세요.");
+        return false;
+      }
+    }
+
+    if (targetStep >= 2) {
+      if (!Array.isArray(treeData)) {
+        showToast.error("Please select an AAS Template.");
+        return false;
+      }
+
+      const validationResult = runValidation();
+      if (!validationResult.isValid) {
+        showToast.error("유효하지 않은 입력값이 있어 다음 단계로 이동할 수 없습니다.");
+        return false;
+      }
+    }
+
+    setActiveStep(targetStep);
+    return true;
+  };
 
   const { data: categorys } = useQuery({
     queryKey: ["common/code", "category"],
@@ -250,22 +433,23 @@ export default function InstanceForm({
     if (!instance) {
       return;
     }
+    const aasmodelMetadata = _.cloneDeep(instance.aasmodel_metadata);
+    const initialCompanyUrl = aasmodelMetadata?.assetAdministrationShells?.[0]?.id || "";
+
     setInputState({
       instance_name: instance.instance_name,
       description: instance.description,
+      company_url: initialCompanyUrl,
       verification: instance.verification,
       verification_log: instance.verification_log,
     });
 
-    const aasmodelMetadata = _.cloneDeep(instance.aasmodel_metadata);
     normalizeMetadataPaths(aasmodelMetadata);
 
     // 인스턴스에 이미 연결된 서브모델과 CD를 메인 메타데이터 상태로 병합합니다.
     if (aasmodelMetadata) {
       // 1. Submodel 병합
-      if (!aasmodelMetadata.submodels) {
-        aasmodelMetadata.submodels = [];
-      }
+      aasmodelMetadata.submodels = [];
 
       if (Array.isArray(instance.submodels)) {
         instance.submodels.forEach((sm_entry) => {
@@ -583,11 +767,10 @@ export default function InstanceForm({
   const handleSubmit = async () => {
     if (!(await confirmSave("Do you want to Save?"))) return;
 
-    for (const key in inputState) {
-      const value = inputState[key];
-      if (value == "") {
-        return showToast.error(`Please check ${key} field`);
-      }
+    const validationResult = runValidation();
+    if (!validationResult.isValid) {
+      showToast.error("유효하지 않은 입력값이 있어 저장할 수 없습니다.");
+      return;
     }
 
     let verification: "success" | "fail";
@@ -610,76 +793,81 @@ export default function InstanceForm({
         return;
     }
 
+    
 
-    const payloadAASmodel = {
-      ...aasmodel,
-      aasmodel_metadata: JSON.stringify(
-        applyMetadata("aasmodel", aasmodel.aasmodel_metadata)
-      ),
-    };
+    
 
-    // Submodel을 백엔드로 보낼 때, 각 Submodel 정의와
-    // 해당 Submodel이 참조하는 ConceptDescription을 함께 묶어 전송합니다.
-    const submodelsFromAAS =
-      (aasmodel.aasmodel_metadata?.submodels as any[])?.map((sm) => {
-        // 'sm'은 Submodel 정의 객체입니다.
-        // 이 Submodel 정의 내부에서 참조하는 모든 'semanticId' 값을 찾습니다.
+      ////////////////////////////////////////////////////////
+
+      //let nextPseudoSeq = -1;
+
+      // 1. 최신 상태의 통합 메타데이터를 가져옵니다.
+      const rawMainMetadata = applyMetadata("aasmodel", aasmodel.aasmodel_metadata);
+
+      // 2. 메인 메타데이터 '본체' 배열을 제거하여 중복 생성을 방지합니다.
+      const cleanMainMetadata = {
+        assetAdministrationShells: rawMainMetadata.assetAdministrationShells || [],
+        conceptDescriptions: rawMainMetadata.conceptDescriptions || []
+      };
+
+      const payloadAASmodel = {
+        ...aasmodel,
+        aasmodel_metadata: JSON.stringify(cleanMainMetadata),
+      };
+
+      // 3. 서브모델 중복 제거 및 가공 (seq가 아닌 고유 'ID' 기준)
+      const uniqueSubmodelsMap = new Map();
+      (rawMainMetadata.submodels as any[])?.forEach((sm) => {
+        if (sm && sm.id) {
+          // 고유 ID(urn:uuid:...)를 키로 사용하여 기존 DB에서 넘어온 중복 데이터를 1개로 압축합니다.
+          uniqueSubmodelsMap.set(sm.id, sm);
+        }
+      });
+      const uniqueSubmodels = Array.from(uniqueSubmodelsMap.values());
+      let tempSeqCounter = -1;
+
+      const submodelsFromAAS = uniqueSubmodels.map((sm: any) => {
         const referencedCDs = new Set<string>();
-        
+
         function findSemanticIds(element: any) {
           if (typeof element !== 'object' || element === null) return;
-          
-          // semanticId (단일)
-          if (element.semanticId && element.semanticId.keys) {
-            element.semanticId.keys.forEach(k => k.value && referencedCDs.add(k.value));
+          if (element.semanticId?.keys) {
+            element.semanticId.keys.forEach((k: any) => k.value && referencedCDs.add(k.value));
           }
-          // isCaseOf (배열)
           if (element.isCaseOf && Array.isArray(element.isCaseOf)) {
-            element.isCaseOf.forEach(ref => ref.keys?.forEach(k => k.value && referencedCDs.add(k.value)));
+            element.isCaseOf.forEach((ref: any) => ref.keys?.forEach((k: any) => k.value && referencedCDs.add(k.value)));
           }
-
-          // 탐색
-          if (element.submodelElements) { // Submodel 또는 SubmodelElementCollection
-            element.submodelElements.forEach(findSemanticIds);
-          }
-          if (element.statements) { // Entity
-            element.statements.forEach(findSemanticIds);
-          }
-          if (element.value && typeof element.value === 'object') { // List, Collection, Range 등
-             if (Array.isArray(element.value)) {
-                element.value.forEach(findSemanticIds);
-             } else {
-                findSemanticIds(element.value);
-             }
+          if (element.submodelElements) element.submodelElements.forEach(findSemanticIds);
+          if (element.statements) element.statements.forEach(findSemanticIds);
+          if (element.value && typeof element.value === 'object') {
+            Array.isArray(element.value) ? element.value.forEach(findSemanticIds) : findSemanticIds(element.value);
           }
         }
-        
-        findSemanticIds(sm); // Submodel 정의부터 탐색 시작
 
-        // 전체 CD 목록에서 참조된 CD 객체만 필터링합니다.
-        const allCDs = aasmodel.aasmodel_metadata?.conceptDescriptions || [];
-        const associatedCDs = allCDs.filter(cd => cd.id && referencedCDs.has(cd.id));
+        findSemanticIds(sm);
 
-        // 백엔드가 요구하는 AAS Environment 형식으로 래핑합니다.
-        // return {
-        //   submodel_seq: sm.submodel_seq || "",
-        //   submodel_metadata: JSON.stringify({
-        //     assetAdministrationShells: [],
-        //     submodels: [sm], // Submodel 정의
-        //     conceptDescriptions: associatedCDs, // 이 Submodel이 참조하는 CD
-        //   }),
-        // };
+        const allCDs = rawMainMetadata.conceptDescriptions || [];
+        const associatedCDs = allCDs.filter((cd: any) => cd.id && referencedCDs.has(cd.id));
+
+        // 본체 데이터에서 submodel_seq 분리 (JSON에 들어가지 않도록)
+        const { submodel_seq, ...smWithoutSeq } = sm;
+
+        // 신규 서브모델(seq가 없는 경우)에는 무작위 음수 ID를 부여하여 백엔드가 정상 INSERT
+        const smSeq = sm.submodel_seq ?? (tempSeqCounter--);
 
         return {
-      // 빈 문자열("")은 백엔드 Integer 타입 검증에서 400 에러를 유발하므로 null로 보냅니다.
-        submodel_seq: sm.submodel_seq || null,
-        submodel_metadata: JSON.stringify({
-          assetAdministrationShells: [],
-          submodels: [sm], // Submodel 정의
-          conceptDescriptions: associatedCDs, // 이 Submodel이 참조하는 CD
-        }),
-      };
+          submodel_seq: smSeq,
+          submodel_metadata: JSON.stringify({
+            assetAdministrationShells: [], // 쉘 중복 처리 방지를 위해 반드시 빈 배열 전송
+            submodels: [smWithoutSeq],
+            conceptDescriptions: associatedCDs,
+          }),
+        };
       }) || [];
+
+          
+        ////////////////////////////////////////////////////////
+
 
     // aasmodel_metadata에 submodels가 없는 경우를 대비하여 빈 배열을 기본값으로 사용
     //const submodelsToSend = submodelsFromAAS.length > 0 ? submodelsFromAAS : [{ submodel_seq: "", submodel_metadata: "{}" }];
@@ -688,9 +876,12 @@ export default function InstanceForm({
 
     let body: InstanceSavePayload;
 
+    const finalDescription = inputState.description ? inputState.description : inputState.instance_name;
+
     if (mode == "create") {
       body = {
         ...inputState,
+        description: finalDescription,
         verification,
         instance_seq: "",
         aasmodel_seq: payloadAASmodel.aasmodel_seq,
@@ -701,6 +892,7 @@ export default function InstanceForm({
     } else if (mode == "edit") {
       body = {
         ...inputState,
+        description: finalDescription,
         verification,
         instance_seq: instance.instance_seq,
         aasmodel_seq: payloadAASmodel.aasmodel_seq,
@@ -869,6 +1061,12 @@ export default function InstanceForm({
       return;
     }
 
+    const validationResult = runValidation();
+    if (!validationResult.isValid) {
+      showToast.error("유효하지 않은 입력값이 있어 저장할 수 없습니다.");
+      return;
+    }
+
     const changes = treeDataRef.current['conceptDescriptions'];
 
     if (!changes || Object.keys(changes).length === 0) {
@@ -913,11 +1111,41 @@ export default function InstanceForm({
 
     // Force re-render to show changes in input fields
     setSelectedNode(prev => prev ? ({ ...prev }) : null);
+    runValidation();
+  };
+
+  // CD 연결 버튼 클릭 후 모달에서 '확인'을 눌렀을 때 실행되는 함수
+  const handleConnectCD = () => {
+    if (!selectedNode || !modalSelectedCD) return;
+
+    const { rootId, node } = selectedNode;
+    
+    // AAS 규격에 맞게 semanticId 갱신 (ModelReference 활용)
+    const typePath = `${node.valuePath}.semanticId.type`;
+    const keysPath = `${node.valuePath}.semanticId.keys`;
+
+    const newType = "ModelReference";
+    const newKeys = [{ type: "ConceptDescription", value: modalSelectedCD.id }];
+
+    // 기존 handleDetailChange 함수를 재활용하여 상태 업데이트 (화면 즉시 반영)
+    handleDetailChange(typePath, newType);
+    handleDetailChange(keysPath, newKeys);
+
+    showToast.success(`'${node.idShort}'에 '${modalSelectedCD.idShort}' CD가 임시 연결되었습니다. (우측 상단 '저장' 버튼을 눌러 확정하세요)`);
+
+    closeCdConnect();
+    setModalSelectedCD(null);
   };
 
   const handleDetailSave = () => {
     if (!selectedNode) {
       showToast.error("No item selected.");
+      return;
+    }
+
+    const validationResult = runValidation();
+    if (!validationResult.isValid) {
+      showToast.error("유효하지 않은 입력값이 있어 저장할 수 없습니다.");
       return;
     }
 
@@ -937,7 +1165,8 @@ export default function InstanceForm({
       _.set(newMetadata, key, changes[key]);
     }
 
-    // Update the main aasmodel state with the new metadata.
+    cleanAasDataBeforeSave(newMetadata);
+    
     // This will trigger a re-render of the AASTree and Preview components.
     setAasmodel(prev => ({ ...prev, aasmodel_metadata: newMetadata }));
 
@@ -946,6 +1175,254 @@ export default function InstanceForm({
     setTreeData(newTreeData);
 
     showToast.success(`Changes for '${node.idShort}' have been saved and applied.`);
+  };
+
+
+  // 데이터 전송 전 빈 valueList를 찾아 제거하는 함수
+  const cleanAasDataBeforeSave = (payload: any) => {
+    const data = JSON.parse(JSON.stringify(payload));
+    const conceptDescriptions = data.conceptDescriptions || data.aasmodel_metadata?.conceptDescriptions;
+
+    if (Array.isArray(conceptDescriptions)) {
+      conceptDescriptions.forEach((cd: any) => {
+        if (cd.embeddedDataSpecifications && Array.isArray(cd.embeddedDataSpecifications)) {
+          cd.embeddedDataSpecifications.forEach((spec: any) => {
+            const content = spec.dataSpecificationContent;
+            
+            // valueList가 존재하는데 비어있는 객체({})라면 통째로 삭제
+            if (content && content.valueList && Object.keys(content.valueList).length === 0) {
+              delete content.valueList;
+            }
+          });
+        }
+      });
+    }
+
+    return data;
+  };
+
+
+
+  const getChildrenPath = (node: any) => {
+    if (!node?.valuePath) return "";
+
+    if (node.modelType === "Submodel") {
+      return `${node.valuePath}.submodelElements`;
+    }
+
+    if (["SubmodelElementCollection", "SubmodelElementList"].includes(node.modelType)) {
+      return `${node.valuePath}.value`;
+    }
+
+    if (node.modelType === "Entity") {
+      return `${node.valuePath}.statements`;
+    }
+
+    return "";
+  };
+
+  const hasUnsavedDetailChanges = () =>
+    Object.values(treeDataRef.current || {}).some(
+      (changes: any) => changes && Object.keys(changes).length > 0
+    );
+
+  const getUniqueCopyIdShort = (baseIdShort: string, siblings: any[]) => {
+    const baseCopyIdShort = `${baseIdShort || "Element"}_Copy`;
+    const existingIdShorts = new Set(
+      siblings
+        .map((sibling) => sibling?.idShort)
+        .filter((idShort): idShort is string => typeof idShort === "string")
+    );
+
+    if (!existingIdShorts.has(baseCopyIdShort)) {
+      return baseCopyIdShort;
+    }
+
+    let copyIndex = 2;
+    let nextIdShort = `${baseCopyIdShort}${copyIndex}`;
+    while (existingIdShorts.has(nextIdShort)) {
+      copyIndex += 1;
+      nextIdShort = `${baseCopyIdShort}${copyIndex}`;
+    }
+
+    return nextIdShort;
+  };
+
+  const handleCopyElement = (node: any) => {
+    if (!node?.valuePath || node.modelType === "Submodel") {
+      return;
+    }
+
+    const sourceElement = _.get(
+      getMergedMetadataSnapshot(aasmodel.aasmodel_metadata),
+      node.valuePath
+    );
+
+    if (!sourceElement) {
+      showToast.error("복사할 요소를 찾을 수 없습니다.");
+      return;
+    }
+
+    setCopiedElement({
+      idShort: node.idShort,
+      modelType: node.modelType,
+      valuePath: node.valuePath,
+      element: _.cloneDeep(sourceElement),
+    });
+    showToast.success(`'${node.idShort}' copied to clipboard.`);
+  };
+
+  const handlePasteElement = (targetNode: any) => {
+    if (!copiedElement?.element) {
+      return;
+    }
+
+    if (hasUnsavedDetailChanges()) {
+      showToast.warning("Save current detail changes before pasting.");
+      return;
+    }
+
+    const newMetadata = _.cloneDeep(aasmodel.aasmodel_metadata);
+    const targetArrayPath = getChildrenPath(targetNode);
+
+    if (!targetArrayPath) {
+      showToast.error("붙여넣을 위치를 찾을 수 없습니다.");
+      return;
+    }
+
+    const targetArray = _.get(newMetadata, targetArrayPath, []);
+    if (!Array.isArray(targetArray)) {
+      showToast.error("붙여넣을 위치가 배열 구조가 아닙니다.");
+      return;
+    }
+
+    const pastedElement = _.cloneDeep(copiedElement.element);
+    pastedElement.idShort = getUniqueCopyIdShort(pastedElement.idShort, targetArray);
+
+    targetArray.push(pastedElement);
+
+    _.set(newMetadata, targetArrayPath, targetArray);
+    setAasmodel((prev) => ({ ...prev, aasmodel_metadata: newMetadata }));
+    setTreeData(convertToTreeData("aasmodel", newMetadata));
+    setSelectedNode(null);
+    setCopiedElement(null);
+    showToast.success(`'${pastedElement.idShort}' pasted successfully.`);
+  };
+
+  const handleReorderElement = (
+    dragNode: any,
+    dropNode: any,
+    position: "top" | "bottom"
+  ) => {
+    if (!dragNode?.valuePath || !dropNode?.valuePath) return;
+    if (dragNode.valuePath === dropNode.valuePath) return;
+
+    const rootId = treeData?.[0]?.id;
+    if (rootId && Object.keys(treeDataRef.current[rootId] ?? {}).length > 0) {
+      showToast.warning("Save current detail changes before reordering.");
+      return;
+    }
+
+    setAasmodel((prev) => {
+      const newMetadata = _.cloneDeep(prev.aasmodel_metadata);
+
+      const moveItem = (
+        items: any[],
+        fromIndex: number,
+        targetIndex: number,
+        pos: "top" | "bottom"
+      ) => {
+        if (!Array.isArray(items) || fromIndex < 0 || fromIndex >= items.length)
+          return false;
+
+        let finalToIndex = pos === "top" ? targetIndex : targetIndex + 1;
+        // 드래그하는 아이템이 타겟보다 앞에 있는 경우, 아이템 제거 후 인덱스가 하나씩 당겨짐을 보정
+        if (fromIndex < finalToIndex) {
+          finalToIndex -= 1;
+        }
+
+        if (
+          fromIndex === finalToIndex ||
+          finalToIndex < 0 ||
+          finalToIndex > items.length
+        ) {
+          return false;
+        }
+
+        const [movedItem] = items.splice(fromIndex, 1);
+        items.splice(finalToIndex, 0, movedItem);
+        return true;
+      };
+
+      if (
+        dragNode.modelType === "Submodel" &&
+        dropNode.modelType === "Submodel"
+      ) {
+        const aasList = newMetadata.assetAdministrationShells;
+        if (!Array.isArray(aasList)) return prev;
+
+        const aas = aasList.find(
+          (item: any) =>
+            Array.isArray(item.submodels) &&
+            item.submodels.some(
+              (ref: any) => ref?.keys?.[0]?.value === dragNode.id
+            ) &&
+            item.submodels.some(
+              (ref: any) => ref?.keys?.[0]?.value === dropNode.id
+            )
+        );
+
+        if (!aas || !Array.isArray(aas.submodels)) {
+          showToast.warning("Submodels can only be reordered within the same Asset Administration Shell.");
+          return prev;
+        }
+
+        const fromIndex = aas.submodels.findIndex(
+          (ref: any) => ref?.keys?.[0]?.value === dragNode.id
+        );
+        const targetIndex = aas.submodels.findIndex(
+          (ref: any) => ref?.keys?.[0]?.value === dropNode.id
+        );
+
+        if (fromIndex === -1 || targetIndex === -1) {
+          return prev;
+        }
+
+        if (
+          !moveItem(aas.submodels, fromIndex, targetIndex, position)
+        )
+          return prev;
+      } else {
+        const dragPathParts = _.toPath(dragNode.valuePath);
+        const dropPathParts = _.toPath(dropNode.valuePath);
+        const dragParentPath = dragPathParts.slice(0, -1);
+        const dropParentPath = dropPathParts.slice(0, -1);
+
+        if (!_.isEqual(dragParentPath, dropParentPath)) {
+          showToast.warning("Only items under the same parent can be reordered.");
+          return prev;
+        }
+
+        const fromIndex = Number(dragPathParts[dragPathParts.length - 1]);
+        const targetIndex = Number(dropPathParts[dropPathParts.length - 1]);
+
+        if (isNaN(fromIndex) || isNaN(targetIndex)) {
+          return prev;
+        }
+
+        const parentArray = _.get(newMetadata, dragParentPath);
+
+        if (!moveItem(parentArray, fromIndex, targetIndex, position))
+          return prev;
+      }
+
+      const newTreeData = convertToTreeData("aasmodel", newMetadata);
+      setTreeData(newTreeData);
+      setSelectedNode(null);
+      runValidation(newMetadata);
+
+      return { ...prev, aasmodel_metadata: newMetadata };
+    });
   };
 
   const handleAddElement = (
@@ -959,7 +1436,7 @@ export default function InstanceForm({
       modelType: elementType,
       description: [{ language: 'en', text: '' }], // langStrings
       semanticId: {
-        type: "ModelReference",
+        type: "ExternalReference",
         keys: [
           {
             type: "GlobalReference",
@@ -974,12 +1451,11 @@ export default function InstanceForm({
         newElement.valueType = "xs:string";
         newElement.value = "";
         newElement.category = "PARAMETER"; // optional
-        newElement.semanticId = { keys: [] };
         break;
       case "MultiLanguageProperty":
         newElement.valueType = "xs:string";
         newElement.value = [
-          { language: "en-US", text: "" }
+          { language: "en", text: "" }
         ];
         break;
       case "Range":
@@ -992,7 +1468,7 @@ export default function InstanceForm({
         newElement.value = "";
         break;
       case "ReferenceElement":
-        newElement.value = { type: "ModelReference", keys: [] };
+        newElement.value = { type: "ExternalReference", keys: [{ type: "GlobalReference", value: "" }] };
         break;
 
       // SubmodelElementCollection 케이스 분리
@@ -1019,8 +1495,8 @@ export default function InstanceForm({
         newElement.specificAssetId = []; // optional but recommended
         break;
       case "RelationshipElement":
-        newElement.first = { type: "ModelReference", keys: [] };
-        newElement.second = { type: "ModelReference", keys: [] };
+        newElement.first = { type: "ExternalReference", keys: [{ type: "GlobalReference", value: "" }] };
+        newElement.second = { type: "ExternalReference", keys: [{ type: "GlobalReference", value: "" }] };
         break;
       default:
         break;
@@ -1137,7 +1613,7 @@ export default function InstanceForm({
 
     const newCD = {
       idShort: idShort,
-      id: uuidv4(),
+      id: `urn:uuid:${uuidv4()}`,
       modelType: "ConceptDescription",
       description: [{ language: "en", text: "" }],
     };
@@ -1700,10 +2176,10 @@ export default function InstanceForm({
               </div>
               <div className="card-body border-top p-9">
                 {submodelTreeNodes.length > 0 ? (
-                  <Accordion variant="separated">
+                  <MantineAccordion variant="separated">
                     {submodelTreeNodes.map((submodelNode, index) => (
-                      <Accordion.Item key={`${submodelNode.idShort || 'submodel'}-${index}`} value={submodelNode.idShort || `submodel-${index}`}>
-                        <Accordion.Control>
+                      <MantineAccordion.Item key={`${submodelNode.idShort || 'submodel'}-${index}`} value={submodelNode.idShort || `submodel-${index}`}>
+                        <MantineAccordion.Control>
                           <Flex align="center" gap="md">
                             <Text>{submodelNode.idShort || "Submodel"}</Text>
                             {/* {submodelNode.idShort?.includes("Nameplate") && (
@@ -1717,8 +2193,8 @@ export default function InstanceForm({
                               </Badge>
                             )} */}
                           </Flex>
-                        </Accordion.Control>
-                        <Accordion.Panel>
+                        </MantineAccordion.Control>
+                        <MantineAccordion.Panel>
                           {submodelNode.idShort?.includes("Nameplate") ? (
                           (() => {
                             // --- 1. 헬퍼 함수 및 헤더 정보 추출 ---
@@ -2069,10 +2545,10 @@ export default function InstanceForm({
                             editMode={false}
                           />
                         )}
-                        </Accordion.Panel>
-                      </Accordion.Item>
+                        </MantineAccordion.Panel>
+                      </MantineAccordion.Item>
                     ))}
-                  </Accordion>
+                  </MantineAccordion>
                 ) : (
                   <div className="text-center text-muted">No submodels to display.</div>
                 )}
@@ -2174,7 +2650,7 @@ export default function InstanceForm({
             <>
               <Stepper
                 active={activeStep}
-                onStepClick={setActiveStep}
+                onStepClick={moveToStep}
                 breakpoint="sm"
                 className="card p-8"
               >
@@ -2213,9 +2689,35 @@ export default function InstanceForm({
                                 placeholder="Please enter"
                                 value={inputState.instance_name ?? ""}
                                 onChange={(e) => {
+                                  const nextState = {
+                                    ...inputState,
+                                    instance_name: e.target.value,
+                                  };
+                                  setInputState(nextState);
+                                  runValidation(aasmodel.aasmodel_metadata, nextState);
+                                }}
+                              />
+                              {basicInfoErrors.instance_name && (
+                                <div className="text-danger fs-6 mt-2 fw-semibold">
+                                  {basicInfoErrors.instance_name}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="row mb-6">
+                            <label className="col-lg-2 col-form-label required fw-semibold fs-6">
+                              Company URL
+                            </label>
+                            <div className="col-lg-10 fv-row">
+                              <input
+                                type="text"
+                                className="form-control form-control-lg"
+                                placeholder="https://www.example.com"
+                                value={inputState.company_url ?? ""}
+                                onChange={(e) => {
                                   setInputState((prev) => ({
                                     ...prev,
-                                    instance_name: e.target.value,
+                                    company_url: e.target.value,
                                   }));
                                 }}
                               />
@@ -2232,10 +2734,12 @@ export default function InstanceForm({
                                 placeholder="Please enter"
                                 value={inputState.description ?? ""}
                                 onChange={(e) => {
-                                  setInputState((prev) => ({
-                                    ...prev,
+                                  const nextState = {
+                                    ...inputState,
                                     description: e.target.value,
-                                  }));
+                                  };
+                                  setInputState(nextState);
+                                  runValidation(aasmodel.aasmodel_metadata, nextState);
                                 }}
                               />
                             </div>
@@ -2380,6 +2884,11 @@ export default function InstanceForm({
                                         simpleView={true}
                                         onAdd={handleAddElement}
                                         onDelete={handleDeleteElement}
+                                        onCopy={handleCopyElement}
+                                        onPaste={handlePasteElement}
+                                        copiedElement={copiedElement}
+                                        onReorder={handleReorderElement}
+                                        errors={metadataErrors}
                                       />
                                     </div>
                                   </div>
@@ -2395,6 +2904,15 @@ export default function InstanceForm({
                                     <div className="card-header d-flex justify-content-between align-items-center">
                                       <h3 className="card-title mb-0">Details {selectedNode ? `- ${selectedNode.node.idShort}` : ''}</h3>
                                       <div>
+                                        <button
+                                          type="button"
+                                          className="btn btn-info btn-sm me-2"
+                                          onClick={openCdConnect}
+                                          disabled={!selectedNode || selectedNode.node.modelType === 'Submodel'} // 서브모델 자체에는 CD를 잘 달지 않으므로 필요시 조절
+                                        >
+                                          <i className="fa-solid fa-link"></i> CD 연결
+                                        </button>
+                                        
                                         <button
                                           type="button"
                                           className="btn btn-success btn-sm me-2"
@@ -2414,16 +2932,55 @@ export default function InstanceForm({
                                     </div>
                                     <div className="card-body" style={{ minHeight: "80vh" }}>
                                       {selectedNode ? (
-                                        <RenderObject
-                                        obj={selectedNode.node}
-                                          state={
-                                            treeDataRef.current[selectedNode.rootId] ?? {}
-                                          }
-                                          onValueChange={handleDetailChange}
-                                          editMode={mode != "view"}
-                                          isInstance={!!instance}
-                                          instanceSeq={instance?.instance_seq}
-                                        />
+                                        <Stack gap="md">
+                                          {(() => {
+                                            const semanticId = selectedNode.node.semanticId?.keys?.[0]?.value || 
+                                                              treeDataRef.current[selectedNode.rootId]?.[`${selectedNode.node.valuePath}.semanticId.keys[0].value`];
+                                            let cdDesc = null;
+                                            let cdInfo = null;
+                                            if (semanticId && aasmodel?.aasmodel_metadata?.conceptDescriptions) {
+                                              cdInfo = aasmodel.aasmodel_metadata.conceptDescriptions.find((c: any) => c.id === semanticId);
+                                              cdDesc = cdInfo?.description?.[0]?.text;
+                                            }
+
+                                            if (cdInfo) {
+                                              return (
+                                                <Card shadow="sm" p="lg" radius="md" withBorder>
+                                                  <Group justify="space-between" mb="xs">
+                                                    <Text fw={500} c="blue">Semantic Information (Concept Description)</Text>
+                                                    <Badge color="blue" variant="light">{cdInfo.idShort}</Badge>
+                                                  </Group>
+                                                  <Text size="sm" c="dimmed" mb="xs" style={{ wordBreak: 'break-all' }}>
+                                                    <i className="fa-solid fa-link me-2"></i>{semanticId}
+                                                  </Text>
+                                                  {cdDesc && (
+                                                    <>
+                                                      <Divider my="sm" />
+                                                      <Text size="sm">
+                                                        <strong>Description: </strong>
+                                                        {cdDesc}
+                                                      </Text>
+                                                    </>
+                                                  )}
+                                                </Card>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                          <RenderObject
+                                            obj={selectedNode.node}
+                                              state={
+                                                treeDataRef.current[selectedNode.rootId] ?? {}
+                                              }
+                                              onValueChange={handleDetailChange}
+                                              editMode={mode != "view"}
+                                              isInstance={!!instance}
+                                              instanceSeq={instance?.instance_seq}
+                                              treeData={treeData}
+                                              fullState={aasmodel.aasmodel_metadata}
+                                              errors={metadataErrors}
+                                            />
+                                        </Stack>
                                       ) : (
                                         <div className="d-flex h-100 justify-content-center align-items-center">
                                           <span className="text-muted">
@@ -2446,9 +3003,10 @@ export default function InstanceForm({
                                     <div className="card-title fs-3 fw-bold text-primary">
                                       CD Tree
                                     </div>
-                                    <div className="d-flex align-items-center py-2 py-md-1">
+                                    <div className="d-flex align-items-center py-2 py-md-1" style={{ gap: '8px' }}>
                                       {mode !== "view" && (
-                                        <button
+                                        <>
+                                        {/* <button
                                           type="button"
                                           className="btn btn-primary btn-sm"
                                           onClick={() =>
@@ -2456,9 +3014,19 @@ export default function InstanceForm({
                                           }
                                         >
                                           <i className="fa-solid fa-plus"></i> Add CD
+                                        </button> */}
+                                        <button
+                                          type="button"
+                                          className="btn btn-primary btn-sm"
+                                          onClick={openCreateCD}
+                                        >
+                                          <i className="fa-solid fa-plus"></i> Create CD
                                         </button>
+                                        </>
                                       )}
                                     </div>
+
+                                    
 
                                   </div>
                                   <div className="card-body border-top p-4">
@@ -2483,6 +3051,8 @@ export default function InstanceForm({
                                         }}
                                         onAdd={handleAddConceptDescription}
                                         onDelete={handleDeleteConceptDescription}
+                                        errors={metadataErrors}
+                                        errorPathPrefix="conceptDescriptions"
                                       />
                                     )}
                                   </div>
@@ -2522,8 +3092,13 @@ export default function InstanceForm({
                                           const relativePath = `[${cdIndex}].${path}`;
                                           treeDataRef.current['conceptDescriptions'][relativePath] = value;
                                           setSelectedCDNode(prev => prev ? { ...prev } : null);
+                                          runValidation();
                                         }}
                                         editMode={mode !== "view"}
+                                        treeData={treeData}
+                                        fullState={aasmodel.aasmodel_metadata}
+                                        errors={metadataErrors}
+                                        errorPathPrefix="conceptDescriptions"
                                       />
                                     ) : (
                                       <div className="d-flex h-100 justify-content-center align-items-center">
@@ -2676,17 +3251,53 @@ export default function InstanceForm({
                       type="button"
                       className="btn btn-primary"
                       onClick={() => {
-                        if (activeStep === 0 && !inputState.instance_name) {
-                          return showToast.error(
-                            "Please enter an instance name."
-                          );
+                        if (activeStep === 0) {
+                          if (!inputState.instance_name) {
+                            return showToast.error("Please enter an instance name.");
+                          }
+                          if (!inputState.company_url) {
+                            return showToast.error("Please enter a Company URL.");
+                          }
+
+                          if (!inputState.description) {
+                            setInputState((prev) => ({
+                              ...prev,
+                              description: prev.instance_name,
+                            }));
+                          }
+
+                          if (aasmodel.aasmodel_metadata && Object.keys(aasmodel.aasmodel_metadata).length > 0) {
+                            setAasmodel((prev) => {
+                              const newMetadata = _.cloneDeep(prev.aasmodel_metadata);
+                              if (newMetadata.assetAdministrationShells && newMetadata.assetAdministrationShells.length > 0) {
+                                const shell = newMetadata.assetAdministrationShells[0];
+                                const version = shell.administration?.version || "1";
+                                const revision = shell.administration?.revision || "0";
+                                const cleanCompanyUrl = inputState.company_url.replace(/\/+$/, "");
+                                shell.id = `${cleanCompanyUrl}/aas/${inputState.instance_name}/${version}/${revision}`;
+                                if (inputState.instance_name) shell.idShort = inputState.instance_name;
+                                const finalDescription = inputState.description ? inputState.description : inputState.instance_name;
+                                if (typeof finalDescription === 'string') {
+                                  if (Array.isArray(shell.description) && shell.description.length > 0) {
+                                    shell.description[0].text = finalDescription;
+                                  } else {
+                                    shell.description = [{ language: "en", text: finalDescription }];
+                                  }
+                                }
+                              }
+
+                              const oldId = prev.aasmodel_metadata?.assetAdministrationShells?.[0]?.id;
+                              const newId = newMetadata.assetAdministrationShells?.[0]?.id;
+                              if (oldId && newId && oldId !== newId) {
+                                treeDataRef.current[newId] = treeDataRef.current[oldId] || {};
+                                delete treeDataRef.current[oldId];
+                              }
+
+                              return { ...prev, aasmodel_metadata: newMetadata };
+                            });
+                          }
                         }
-                        if (activeStep === 1 && !Array.isArray(treeData)) {
-                          return showToast.error(
-                            "Please select an AAS Template."
-                          );
-                        }
-                        setActiveStep(activeStep + 1);
+                        moveToStep(activeStep + 1);
                       }}
                     >
                       Next
@@ -2824,15 +3435,38 @@ export default function InstanceForm({
                       const renamedModel = renameKey(model, "metadata", "aasmodel_metadata");
                       if (renamedModel.aasmodel_metadata) {
                         normalizeMetadataPaths(renamedModel.aasmodel_metadata);
+                        
+                        // Inject inputState values into the selected template
+                        if (renamedModel.aasmodel_metadata.assetAdministrationShells && renamedModel.aasmodel_metadata.assetAdministrationShells.length > 0) {
+                          const shell = renamedModel.aasmodel_metadata.assetAdministrationShells[0];
+                          if (inputState.company_url && inputState.instance_name) {
+                            const version = shell.administration?.version || "1";
+                            const revision = shell.administration?.revision || "0";
+                            const cleanCompanyUrl = inputState.company_url.replace(/\/+$/, "");
+                            shell.id = `${cleanCompanyUrl}/aas/${inputState.instance_name}/${version}/${revision}`;
+                          } else if (inputState.company_url) {
+                            shell.id = inputState.company_url;
+                          }
+                          if (inputState.instance_name) shell.idShort = inputState.instance_name;
+                          const finalDescription = inputState.description ? inputState.description : inputState.instance_name;
+                          if (typeof finalDescription === 'string') {
+                            if (Array.isArray(shell.description) && shell.description.length > 0) {
+                              shell.description[0].text = finalDescription;
+                            } else {
+                              shell.description = [{ language: "en", text: finalDescription }];
+                            }
+                          }
+                        }
                       }
 
                       setAasmodel(renamedModel);
-                      treeDataRef.current[model.aasmodel_id] = {};
+                      
+                      const newId = renamedModel.aasmodel_metadata?.assetAdministrationShells?.[0]?.id || model.aasmodel_id;
+                      treeDataRef.current[newId] = {};
 
                       setInputState((prev) => ({
                         ...prev,
                         instance_name: prev.instance_name || model.aasmodel_name,
-                        description: prev.description || model.description,
                       }));
 
 
@@ -2849,7 +3483,7 @@ export default function InstanceForm({
                       const submodelData = _.cloneDeep(templateSubmodelData); 
 
                       // 2. 새 인스턴스를 위한 고유 ID 생성
-                      const newInstanceId = uuidv4();
+                      const newInstanceId = `urn:uuid:${uuidv4()}`;
                       submodelData.id = newInstanceId; // 새 ID 할당
 
                       // 3. 템플릿의 'kind'를 'Instance'로 변경
@@ -2857,34 +3491,50 @@ export default function InstanceForm({
                         submodelData.kind = "Instance";
                       }
                       
-                      // 4. 원본 템플릿의 seq는 DB 저장을 위해 별도로 저장
-                      submodelData.submodel_seq = model.submodel_seq;
+                      // 4. 원본 템플릿의 seq는 복사하지 않도록 제거 (신규 INSERT 유도)
+                      delete submodelData.submodel_seq;
                       
+
                       // 5. modelType 보장
-                      submodelData.modelType = "Submodel"; 
+                      submodelData.modelType = "Submodel";
 
-                      // 6. 템플릿 ID 기반의 중복 검사 로직 제거
-                      // (항상 새 ID를 가진 인스턴스를 추가하므로 중복이 발생하지 않음)
-                      // if (isDuplicate) { ... }
-
-                      // 7. 새 인스턴스 ID로 참조(Reference) 생성
-                      const submodelReference = {
-                        type: "ModelReference", // AAS 사양에 맞게 "ModelReference" 사용
-                        keys: [{ type: "Submodel", value: newInstanceId }], // 새 ID 사용
-                      };
 
                       setAasmodel((prev) => {
-                        const newMetadata = _.cloneDeep(
-                          prev.aasmodel_metadata
-                        );
+                        const newMetadata = _.cloneDeep(prev.aasmodel_metadata);
 
                         if (!newMetadata.submodels) {
                           newMetadata.submodels = [];
                         }
+
+                        // 6. idShort 중복 검사 및 넘버링 (AAS 규격상 idShort는 중복될 수 없음)
+                        let newIdShort = submodelData.idShort;
+                        let counter = 1;
+                        while (newMetadata.submodels.some(sm => sm.idShort === newIdShort)) {
+                          newIdShort = `${submodelData.idShort}_${counter}`;
+                          counter++;
+                        }
+                        submodelData.idShort = newIdShort;
+
                         // 새 ID가 할당된 submodelData 추가
-                        newMetadata.submodels.push(submodelData); 
+                        newMetadata.submodels.push(submodelData);
+
+                        // submodelReference 객체 직접 정의
+                        const submodelReference = {
+                          type: "ModelReference",
+                          keys: [
+                            {
+                              type: "Submodel",
+                              value: submodelData.id
+                            }
+                          ]
+                        };
 
                         // 새 ID를 참조하는 submodelReference 추가
+                        if (!newMetadata.assetAdministrationShells[0].submodels) {
+                          newMetadata.assetAdministrationShells[0].submodels = [];
+                        }
+
+                        // 3. 새 ID를 참조하는 submodelReference 추가
                         newMetadata.assetAdministrationShells[0].submodels.push(
                           submodelReference 
                         );
@@ -2927,6 +3577,155 @@ export default function InstanceForm({
         {/*end::Modal dialog*/}
       </div>
       {/*end::Modal - Invite Friends*/}
+
+
+      {/* CD 연결 모달 */}
+      <Modal
+        opened={cdConnectModalOpened}
+        onClose={() => { closeCdConnect(); setModalSelectedCD(null); }}
+        title={<Text fw={700} size="lg">연결할 Concept Description 선택</Text>}
+        size="lg"
+        radius="md"
+        centered
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            아래 목록에서 이 엘리먼트와 연결할 CD를 선택하세요. 확인을 누르면 엘리먼트의 semanticId가 선택한 CD의 ID로 자동 업데이트됩니다.
+          </Text>
+          
+          <div style={{ maxHeight: "50vh", overflowY: "auto", border: "1px solid #efefef", borderRadius: "8px", padding: "10px" }}>
+            {Array.isArray(conceptDescriptionTreeData) && conceptDescriptionTreeData.length > 0 ? (
+              <AASTree
+                data={conceptDescriptionTreeData}
+                editMode={false}
+                simpleView={true}
+                onNodeClick={(node) => {
+                  // 최상위 폴더 노드가 아닌 실제 CD 노드만 선택 가능하도록 처리
+                  if (node.modelType !== 'ConceptDescriptions') {
+                    setModalSelectedCD(node);
+                  } else {
+                    setModalSelectedCD(null);
+                  }
+                }}
+              />
+            ) : (
+              <Text c="dimmed" ta="center" py="xl">생성된 Concept Description이 없습니다.</Text>
+            )}
+          </div>
+
+          <Group justify="space-between" mt="sm">
+            <div style={{ flexGrow: 1, minWidth: 0 }}>
+              {modalSelectedCD ? (
+                <Text size="sm" fw={600} c="blue" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <i className="fa-solid fa-check me-2"></i> 선택됨: {modalSelectedCD.idShort}
+                </Text>
+              ) : (
+                <Text size="sm" c="dimmed">선택된 CD가 없습니다.</Text>
+              )}
+            </div>
+            <Group>
+              <Button variant="light" color="gray" onClick={() => { closeCdConnect(); setModalSelectedCD(null); }}>
+                취소
+              </Button>
+              <Button color="blue" onClick={handleConnectCD} disabled={!modalSelectedCD}>
+                확인
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
+
+      <Modal 
+        opened={createCDOpened} 
+        onClose={closeCreateCD} 
+        title={<Text fw={700} size="lg">새 ConceptDescription</Text>}
+        size="md"
+        radius="md"
+        centered
+      >
+        <Stack gap="md">
+          <TextInput
+            label="속성 이름"
+            placeholder="예: MaxRotationSpeed"
+            required
+            value={newCDState.idShort}
+            onChange={(e) => handleIdShortChange(e.currentTarget.value)}
+            rightSection={<i className="fa-solid fa-magnifying-glass text-muted"></i>} // 스크린샷의 돋보기 아이콘
+          />
+
+          <Group grow>
+            <Select
+              label="타입"
+              data={valueTypeOptions}
+              value={newCDState.valueType}
+              onChange={(val) => setNewCDState({ ...newCDState, valueType: val || "" })}
+            />
+            <TextInput
+              label="단위"
+              placeholder="rpm, V, °C, mm..."
+              value={newCDState.unit}
+              onChange={(e) => setNewCDState({ ...newCDState, unit: e.currentTarget.value })}
+            />
+          </Group>
+          <Text size="xs" c="dimmed" mt={-10}>소수 + 단위</Text>
+
+          <Textarea
+            label="정의"
+            placeholder="이 속성이 무엇을 의미하는지 설명하세요."
+            required
+            minRows={4}
+            value={newCDState.definition}
+            onChange={(e) => setNewCDState({ ...newCDState, definition: e.currentTarget.value })}
+          />
+
+          <Divider my="sm" label="고급 설정" labelPosition="left" />
+
+          <Stack gap="xs">
+            <TextInput
+              label="id (IRDI / IRI)"
+              placeholder="https://ezmodel-hub.re.kr/cd/..."
+              required
+              value={newCDState.id}
+              onChange={(e) => setNewCDState({ ...newCDState, id: e.currentTarget.value })}
+            />
+            <Text size="xs" c="dimmed">자동 생성됨. ECLASS 연결 시 IRDI로 교체됩니다.</Text>
+            
+            <MantineAccordion variant="default" chevronPosition="right" styles={{ item: { border: 'none' }, control: { padding: 0 } }}>
+              <MantineAccordion.Item value="isCaseOf">
+                <MantineAccordion.Control>
+                  <Text size="sm" fw={500}>isCaseOf</Text>
+                </MantineAccordion.Control>
+                <MantineAccordion.Panel>
+                  <Text size="xs" c="dimmed" mb={5}>
+                    이 개념이 외부 표준(ECLASS 등)의 어떤 개념과 동일한지 연결합니다. ECLASS 연결 시 자동으로 추가됩니다.
+                  </Text>
+                  {/* <TextInput
+                    placeholder="표준 ID 입력"
+                    value={newCDState.isCaseOf}
+                    onChange={(e) => setNewCDState({ ...newCDState, isCaseOf: e.currentTarget.value })}
+                  /> */}
+                </MantineAccordion.Panel>
+              </MantineAccordion.Item>
+            </MantineAccordion>
+          </Stack>
+
+          <Group justify="space-between" mt="xl">
+            <Text size="xs" c="red" fw={500}>
+              <i className="fa-solid fa-circle-exclamation me-1"></i> 필수 항목을 확인해주세요.
+            </Text>
+            <Group>
+              <Button variant="light" color="gray" onClick={closeCreateCD}>
+                취소
+              </Button>
+              <Button color="blue" onClick={handleCreateCDSave} disabled={!newCDState.idShort || !newCDState.id}>
+                저장
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
+
     </div>
   );
 }

@@ -268,6 +268,11 @@ def clean_aas_metadata(data):
                     if 'dataSpecificationContent' in eds:
                         content = eds['dataSpecificationContent'] # content 변수 사용
 
+                        # IEC61360 스키마 규격에 맞게 valueType을 dataType으로 변환
+                        if 'valueType' in content:
+                            content['dataType'] = content['valueType']
+                            del content['valueType']
+
                         if 'value' in content and not content['value']:
                             content['value'] = ' ' 
                         
@@ -343,6 +348,13 @@ def clean_empty_structures(obj):
                 cleaned[k] = filtered_list
                 continue
 
+            # valueList가 비어있거나 valueReferencePairs가 없는 경우 제거합니다.
+            if k == "valueList":
+                if isinstance(v, dict) and ("valueReferencePairs" not in v or not v["valueReferencePairs"]):
+                    continue
+                if not v: # 비어있는 리스트([])나 빈 딕셔너리({})인 경우
+                    continue
+
             cleaned_v = clean_empty_structures(v)
 
             # [{}] 제거
@@ -355,3 +367,32 @@ def clean_empty_structures(obj):
         return [clean_empty_structures(item) for item in obj]
     else:
         return obj
+
+
+def clean_aas_data(data):
+    """
+    AAS JSON 데이터를 탐색하여 AASX 표준에 위배되는 빈 객체를 모두 삭제.
+    """
+    if isinstance(data, dict):
+        if "valueList" in data:
+            val_list = data["valueList"]
+            if isinstance(val_list, dict):
+                if "valueReferencePairs" not in val_list or not val_list["valueReferencePairs"]:
+                    del data["valueList"]
+
+        for ref_key in ["valueId", "semanticId"]:
+            if ref_key in data:
+                ref_val = data[ref_key]
+                if isinstance(ref_val, dict):
+                    if "keys" not in ref_val or not ref_val["keys"]:
+                        del data[ref_key]
+
+        for key in list(data.keys()):
+            if key in data:
+                clean_aas_data(data[key])
+                
+    elif isinstance(data, list):
+        for item in data:
+            clean_aas_data(item)
+            
+    return data

@@ -73,10 +73,8 @@ export default function LoginContent({ redirectUrl }: LoginContentProps) {
                 </div>
                 {/* begin::Heading*/}
                 {/* begin::Login options*/}
-                <div className="row g-3 mb-9">
-                  {/* begin::Col*/}
+                <div className="row g-3 mb-9" style={{display:'none'}}>
                   <div className="col-md-12">
-                    {/* begin::Google link=*/}
                     <button
                       className="btn btn-flex btn-outline btn-text-gray-700 btn-active-color-primary bg-state-light flex-center text-nowrap w-100"
                       onClick={() => {
@@ -90,7 +88,6 @@ export default function LoginContent({ redirectUrl }: LoginContentProps) {
                       />
                       Sign in with Google
                     </button>
-                    {/* end::Google link=*/}
                   </div>
                   {/* end::Col*/}
                   {/* begin::Col*/}
@@ -115,7 +112,7 @@ export default function LoginContent({ redirectUrl }: LoginContentProps) {
                 </div>
                 {/* end::Login options*/}
                 {/* begin::Separator*/}
-                <div className="separator separator-content my-14">
+                <div className="separator separator-content my-14" style={{display:'none'}}>
                   <span className="w-125px text-gray-500 fw-semibold fs-7">
                     Or with email
                   </span>

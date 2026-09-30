@@ -110,9 +110,9 @@ export default function Login() {
                     <h1 className="text-gray-900 fw-bolder mb-3">Sign Up</h1>
                   </div>
 
-                  <div className="row g-3 mb-9">
+                  <div className="row g-3 mb-9" style={{display:'none'}}>
                     {/* begin::Col*/}
-                    <div className="col-md-6">
+                    <div className="col-md-12">
                       {/* begin::Google link=*/}
                       <button
                         className="btn btn-flex btn-outline btn-text-gray-700 btn-active-color-primary bg-state-light flex-center text-nowrap w-100"
@@ -131,7 +131,7 @@ export default function Login() {
                     </div>
                     {/* end::Col*/}
                     {/* begin::Col*/}
-                    <div className="col-md-6">
+                    <div className="col-md-6" style={{display:"none"}}>
                       {/* begin::Google link=*/}
                       <button
                         className="btn btn-flex btn-outline btn-text-gray-700 btn-active-color-primary bg-state-light flex-center text-nowrap w-100"
@@ -151,7 +151,7 @@ export default function Login() {
                     {/* end::Col*/}
                   </div>
 
-                  <div className="separator separator-content my-14">
+                  <div className="separator separator-content my-14" style={{display:'none'}}>
                     <span className="w-125px text-gray-500 fw-semibold fs-7">
                       Or with email
                     </span>

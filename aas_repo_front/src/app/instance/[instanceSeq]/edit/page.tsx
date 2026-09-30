@@ -15,7 +15,7 @@ export default async function Page({ params }: Props) {
 
   return (
     <>
-      {instance != null && <InstanceForm mode={"edit"} instance={instance} />}
+      {instance != null && <InstanceForm mode={"edit"} instance={Array.isArray(instance) ? instance[0] : instance} />}
     </>
   );
 }

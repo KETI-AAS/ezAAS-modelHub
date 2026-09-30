@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ipx2309753 
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in private .env}
       POSTGRES_DB: postgres
     ports:
       - "5432:5432"
@@ -51,8 +51,8 @@ services:
       dockerfile: Dockerfile
     container_name: aas_repo_front
     restart: always
-    ports:
-      - "5000:5000"
+    #ports:
+    #  - "5000:5000"
     networks:
       - aas-network
 

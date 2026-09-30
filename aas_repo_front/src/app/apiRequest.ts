@@ -27,13 +27,34 @@ export async function apiRequest({
   const isServer = typeof window === "undefined";
 
   // Base URL
-  const BASE_URL = isServer
-    ? `${process.env.NEXT_PUBLIC_AAS_API_BASE_SERVER}:${process.env.NEXT_PUBLIC_AAS_API_PORT_SERVER}`
-    // : `${process.env.NEXT_PUBLIC_AAS_API_BASE}:${process.env.NEXT_PUBLIC_AAS_API_PORT}`;
-    : process.env.NEXT_PUBLIC_AAS_API_PORT 
-      ? `${process.env.NEXT_PUBLIC_AAS_API_BASE}:${process.env.NEXT_PUBLIC_AAS_API_PORT}` 
-      : process.env.NEXT_PUBLIC_AAS_API_BASE;
-  const fullUrl = `${BASE_URL}/${url}`;
+  const serverBase = process.env.NEXT_PUBLIC_AAS_API_BASE_SERVER || "http://backend";
+  const serverPort = process.env.NEXT_PUBLIC_AAS_API_PORT_SERVER || "8000";
+  const clientBase = process.env.NEXT_PUBLIC_AAS_API_BASE || "/api";
+  const clientPort = process.env.NEXT_PUBLIC_AAS_API_PORT;
+
+  let BASE_URL = "";
+  if (isServer) {
+    if (process.env.NODE_ENV === "production") {
+      // 운영 서버(Docker)에서는 docker-compose.yml 및 nginx 설정과 동일하게 내부망 주소를 강제합니다.
+      // (운영 서버 .env 파일의 hub-be:8100 오기입으로 인한 500 에러 방지)
+      BASE_URL = "http://backend:8000";
+    } else {
+      // 로컬 개발 환경에서는 환경변수 또는 127.0.0.1:8000 사용
+      BASE_URL = process.env.NEXT_PUBLIC_AAS_API_BASE_SERVER 
+        ? (process.env.NEXT_PUBLIC_AAS_API_PORT_SERVER ? `${process.env.NEXT_PUBLIC_AAS_API_BASE_SERVER}:${process.env.NEXT_PUBLIC_AAS_API_PORT_SERVER}` : process.env.NEXT_PUBLIC_AAS_API_BASE_SERVER)
+        : "http://127.0.0.1:8000";
+    }
+  } else {
+    BASE_URL = process.env.NEXT_PUBLIC_AAS_API_PORT 
+      ? `${clientBase}:${clientPort}` 
+      : clientBase;
+  }
+  
+  // Clean up BASE_URL if it has a trailing slash, and remove leading slash from url
+  BASE_URL = BASE_URL.replace(/\/$/, "");
+  const cleanUrl = url.replace(/^\//, "");
+  
+  const fullUrl = BASE_URL === "/api" ? `${BASE_URL}/${cleanUrl}` : `${BASE_URL}/${cleanUrl}`;
 
   // 기본 설정
   options.headers = {
@@ -48,7 +69,13 @@ export async function apiRequest({
       const token = cookieStore.get("token_message")?.value;
 
       if (token) {
-        options.headers["Authorization"] = `Bearer ${token}`;
+        const decodedToken = decodeURIComponent(token);
+        try {
+          const tokenData = JSON.parse(decodedToken);
+          options.headers["Authorization"] = `Bearer ${JSON.stringify(tokenData)}`;
+        } catch (parseErr) {
+          options.headers["Authorization"] = `Bearer ${decodedToken}`;
+        }
       }
     } catch (err) {
       console.warn("Unable to attach Authorization header on server", err);
@@ -154,6 +181,10 @@ export async function apiRequest({
 
     if (isServer && error.message === "NEXT_REDIRECT") {
       throw error; // let Server Component handle redirect
+    }
+
+    if (isServer) {
+      throw error; // Re-throw other server-side errors so Next.js error boundary catches them instead of rendering a blank page
     }
   }
 }

@@ -3,6 +3,22 @@ import argparse
 import multiprocessing
 import signal
 import time
+import starlette.formparsers as _fp
+import multipart.multipart as _mp
+
+_LIMIT = 100 * 1024 * 1024  # 100MB
+
+if hasattr(_mp, 'MAX_PART_SIZE'):
+    _mp.MAX_PART_SIZE = _LIMIT
+
+_OriginalInit = _fp.MultiPartParser.__init__
+
+def _patched_init(self, headers, stream, *, max_files=1000, max_fields=1000, max_part_size=_LIMIT):
+    _OriginalInit(self, headers, stream, max_files=max_files, max_fields=max_fields, max_part_size=max_part_size)
+
+_fp.MultiPartParser.__init__ = _patched_init
+
+
 os.environ['JAVA_HOME'] = '/usr/lib/jvm/java-11-openjdk-amd64'
 os.environ['LD_LIBRARY_PATH'] = '/usr/lib/jvm/java-11-openjdk-amd64/lib/server'
 from fastapi import FastAPI, Request
@@ -23,6 +39,9 @@ from fastapi.staticfiles import StaticFiles
 #from processor.jdbcProcess import setJavaEnvironment
 
 from app.basyxAasenvironmentModule import start_jvm  
+
+import starlette.formparsers
+starlette.formparsers.MultiPartParser.max_part_size = 50 * 1024 * 1024
 
 
 
@@ -51,6 +70,8 @@ app.add_middleware(
 ) 
 
 app.include_router(auth.router)
+from router import sso
+app.include_router(sso.router)
 app.include_router(aasmodel.router)
 app.include_router(aassubmodel.router)
 app.include_router(aasBasyx.router)

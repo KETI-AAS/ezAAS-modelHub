@@ -35,11 +35,15 @@ export default function Page() {
   const router = useRouter();
   const { user, authToken } = useAuth();
 
-  const handlePortalClick = () => {
-    if (authToken) {
-      const portalUrl = `${process.env.NEXT_PUBLIC_PORTAL_URL}?token=${authToken.payload.jwt_access_token}`;
-      window.open(portalUrl, "_blank");
+  // Instance POTAL 이동
+  const handlePortalClick = (instance_seq: any, isDeployed: boolean) => {
+    let portalUrl: string;
+    if (isDeployed) {
+      portalUrl = `${process.env.NEXT_PUBLIC_PORTAL_URL}/instances?instance_seq=${instance_seq}`;
+    } else {
+      portalUrl = `${process.env.NEXT_PUBLIC_PORTAL_URL}/deployments`;
     }
+    window.open(portalUrl, "_blank");
   };
   
   // 검색 박스 상태 값
@@ -226,7 +230,7 @@ export default function Page() {
           {
             accessorKey: "actions", // 키 이름 변경
             header: "Download / Edit",
-            size: 275,
+            size: 205,
             Cell: ({ row }) => {
               // 권한 체크: System Manager(1) 이거나 본인이 만든 글일 경우
               const hasPermission = 
@@ -274,12 +278,12 @@ export default function Page() {
                   </Link>
 
                   {/* POTAL Link Button */}
-                  <button
-                    onClick={handlePortalClick}
+                  {/* <button
+                    onClick={() => handlePortalClick(row.original.instance_seq, isDeployed)}
                     className={`btn btn-sm ${isDeployed ? "btn-primary" : "btn-outline btn-outline-primary"}`}
                   >
                     <i className="fa-solid fa-server"></i> POTAL
-                  </button>
+                  </button> */}
 
 
                   {/* Server Context Menu Button  */}
