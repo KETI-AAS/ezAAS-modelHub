@@ -1,91 +1,69 @@
+# Sanitized template: contains placeholders only, not production credentials.
+# Replace CHANGE_ME_* and example.com values in private deployment configuration.
+# CHANGE_ME_* Fernet placeholders are not valid keys; supply real keys before use.
+# Commit config.example.yaml only; other config YAML files are gitignored.
+
 debug:
   mode: 1
-
 service_info:
   name: AAS_Repository
   lang_code: 1
-  host_f_domain: "https://ezmodel-hub.re.kr"       # 프론트엔드 메인 주소
-  host_f_ip: "http://127.0.0.1:3000"               # 내부 통신용
-  host_b_domain: "https://ezmodel-hub.re.kr/api"   # 백엔드 API 공식 주소
-  host_portal: "https://portal.ezmodel-hub.re.kr"  # [2026-03-17] Portal 서브도메인 (CORS 허용 대상)
-
-
+  host_f_domain: https://hub.example.com
+  host_f_ip: http://127.0.0.1:5000
+  host_b_domain: https://hub.example.com/api
+  host_portal: https://portal.example.com
 social_google:
-  GOOGLE_CLIENT_ID: 975633174609-6o7kfin601m32in3r0c1qpe2h01etj6o.apps.googleusercontent.com
-  GOOGLE_CLIENT_SECRET: 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
+  GOOGLE_CLIENT_ID: CHANGE_ME_GOOGLE_CLIENT_ID
+  GOOGLE_CLIENT_SECRET: CHANGE_ME_GOOGLE_CLIENT_SECRET
   GOOGLE_AUTH_URL: https://accounts.google.com/o/oauth2/v2/auth
   GOOGLE_TOKEN_URL: https://oauth2.googleapis.com/token
   GOOGLE_PROFILE_URL: https://www.googleapis.com/oauth2/v2/userinfo
-  GOOGLE_REDIRECT_URI: "{url}/google/callback"
-
+  GOOGLE_REDIRECT_URI: '{url}/google/callback'
 social_naver:
-  NAVER_CLIENT_ID: 7ncgB2GBbVw3gyor4ktl
-  NAVER_CLIENT_SECRET: zgh69IDMXU
+  NAVER_CLIENT_ID: CHANGE_ME_NAVER_CLIENT_ID
+  NAVER_CLIENT_SECRET: CHANGE_ME_NAVER_CLIENT_SECRET
   NAVER_AUTH_URL: https://nid.naver.com/oauth2.0/authorize
   NAVER_TOKEN_URL: https://nid.naver.com/oauth2.0/token
   NAVER_PROFILE_URL: https://openapi.naver.com/v1/nid/me
-  NAVER_REDIRECT_URI: "{url}/naver/callback"
-  
+  NAVER_REDIRECT_URI: '{url}/naver/callback'
 file:
-  fullpath: /home/datalake/aas_files/aas
+  fullpath: /app/data/aas
   mainpath: /aas_files/aas
-  sm_fullpath: /home/datalake/aas_files/sm
+  sm_fullpath: /app/data/sm
   sm_mainpath: /aas_files/sm
-  url: 
-
+  url: null
 fastapi:
   max_request: 1000000
-  max_request_interval_rt : 0.1
-  
-
+  max_request_interval_rt: 0.1
 keti_api:
-  url: http://te.amrc.kr
-
+  url: https://api.example.com
 postgres:
-  #host: 192.168.100.46
-  host: pg16
+  host: localhost
   port: 5432
-  username: postgres
-  password: ipx2309753
-  database: postgres
+  username: CHANGE_ME_DB_USER
+  password: CHANGE_ME_DB_PASSWORD
+  database: CHANGE_ME_DB_NAME
   timeout: 7
-
-# postgres:
-#   host: ys.onewayplatform.com
-#   port: 30308
-#   username: postgres
-#   password: ipx2309753
-#   database: postgres
-#   timeout: 7
-
-
 auth:
-  JWT_SECRET_KEY: impix_secret_salt
+  JWT_SECRET_KEY: CHANGE_ME_JWT_SECRET_KEY
   ALGORITHM: HS256
-  password_secret_key: crNz2jnaPU_OKmA8dj-mLywgFTeMw4WLlICDZMKUuIo==
+  password_secret_key: CHANGE_ME_FERNET_KEY
   target: AASREPO_IMPIX
   expires_sec: 43200
   expires_hour: 1
-
 mail:
-  smtp_title : "KETI AAS Repository Hub"
-  smtp_server: smtp.gmail.com
+  smtp_title: KETI AAS Repository Hub
+  smtp_server: smtp.example.com
   smtp_port: 587
-  email_address: 3leaf.4leaf@gmail.com
-  email_password: ekfbdzjlujajatwg
-  reset_password_url: "{url}/reset-password?token="
-
-
+  email_address: sender@example.com
+  email_password: CHANGE_ME_SMTP_PASSWORD
+  reset_password_url: '{url}/reset-password?token='
 csv:
-  passKey: "crNz2jnaPU_OKmA8dj-mLywgFTeMw4WLlICDZMKUuIo="    
-
+  passKey: CHANGE_ME_CSV_FERNET_KEY
 log:
-# 0:NOTSET 1:DEBUG / 2:INFO / 3:WARN / 4:ERROR / 5:FATAL
   level: 4
-  name: "AASREPO"
+  name: AASREPO
   db_name: aas
-  path: /Log
+  path: /app/logs
   length:
     system: 20000
-
-

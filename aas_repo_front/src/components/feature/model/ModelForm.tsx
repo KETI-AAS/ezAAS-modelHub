@@ -259,8 +259,9 @@ export default function ModelForm({
     });
     
     // 2. 중복 제거된 Map의 value들로 새로운 children 배열을 생성합니다.
-    const children = Array.from(uniqueCDs.values()).map((conceptDescription) => ({
+    const children = Array.from(uniqueCDs.values()).map((conceptDescription, index) => ({
         ...conceptDescription, // 상세 뷰를 위해 전체 객체 정보 포함
+        valuePath: `conceptDescriptions[${index}]`, // 노드 삭제 시 필요한 경로 맵핑
         value: conceptDescription.id,
         ConceptDescription: conceptDescription,
     }));
@@ -373,6 +374,63 @@ export default function ModelForm({
     setGuidePdf(null);
     setDeleteGuideFlag(false);
     resetRef.current?.();
+  };
+
+  // 노드 추가 핸들러
+  const handleAddNode = (node: any, elementType: string, idShort: string) => {
+    setMetaData((prev: any) => {
+      const nextData = _.cloneDeep(prev);
+
+      const newNode: any = {
+        modelType: elementType,
+        idShort: idShort,
+      };
+
+      if (elementType === "ConceptDescription") {
+        newNode.id = `https://example.com/ids/cd/${idShort}_${Date.now()}`; // 임시 ID 생성
+        if (!nextData.conceptDescriptions) {
+          nextData.conceptDescriptions = [];
+        }
+        nextData.conceptDescriptions.push(newNode);
+      } else {
+        if (!node.valuePath) return nextData;
+        const parentObj = _.get(nextData, node.valuePath);
+        if (parentObj) {
+          if (!parentObj.submodelElements) {
+            parentObj.submodelElements = [];
+          }
+          parentObj.submodelElements.push(newNode);
+        }
+      }
+      return nextData;
+    });
+  };
+
+  // 노드 삭제 핸들러
+  const handleDeleteNode = (node: any) => {
+    if (!node.valuePath) return;
+    setMetaData((prev: any) => {
+      const nextData = _.cloneDeep(prev);
+      const pathArray = _.toPath(node.valuePath);
+      const lastKey = pathArray.pop();
+      const parentPath = pathArray.join(".");
+
+      if (parentPath) {
+        const parentObj = _.get(nextData, parentPath);
+        if (Array.isArray(parentObj)) {
+          parentObj.splice(Number(lastKey), 1);
+        } else if (parentObj && typeof parentObj === "object") {
+          delete parentObj[lastKey as string];
+        }
+      } else {
+        if (Array.isArray(nextData)) {
+          nextData.splice(Number(lastKey), 1);
+        } else {
+          delete nextData[lastKey as string];
+        }
+      }
+      return nextData;
+    });
   };
 
   const onChangeImport = async (file: File | null) => {
@@ -1633,6 +1691,8 @@ export default function ModelForm({
                           data={treeData}
                           treeDataRefCurrent={treeDataRef.current}
                           editMode={["create", "edit"].includes(mode)}
+                          onAdd={handleAddNode}
+                          onDelete={handleDeleteNode}
                         />
                       )}
                     </div>
@@ -1851,6 +1911,8 @@ export default function ModelForm({
                           mb={"sm"}
                           data={conceptDescriptionTreeData}
                           editMode={["create", "edit"].includes(mode)}
+                          onAdd={handleAddNode}
+                          onDelete={handleDeleteNode}
                         />
                       )}
                     </div>

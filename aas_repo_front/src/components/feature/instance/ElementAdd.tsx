@@ -12,18 +12,7 @@ import {
 import { useDisclosure } from "@mantine/hooks";
 import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
-
-const elementTypes = [
-  "SubmodelElementCollection",
-  "SubmodelElementList",
-  "Property",
-  "MultiLanguageProperty",
-  "Range",
-  "File",
-  "ReferenceElement",
-  "Entity",
-  "RelationshipElement",
-];
+import { AasSubmodelElements } from "@/constants/aasConstants";
 
 interface ElementAddProps {
   onAdd: (elementType: string, idShort: string) => void;
@@ -32,7 +21,7 @@ interface ElementAddProps {
 
 export default function ElementAdd({
   onAdd,
-  allowedTypes = elementTypes,
+  allowedTypes = AasSubmodelElements,
 }: ElementAddProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const combobox = useCombobox({

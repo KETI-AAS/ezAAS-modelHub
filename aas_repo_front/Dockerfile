@@ -1,13 +1,14 @@
 # 1단계: 빌드 환경 설정
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+#RUN npm install
+RUN npm ci
 COPY . .
 RUN npm run build
 
 # 2단계: 실행 환경 설정
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public

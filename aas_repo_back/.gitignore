@@ -1,0 +1,22 @@
+*.pyc
+*.csv
+pyvenv.cfg
+lib/site-packages/
+Scripts/
+__pycache__/
+.idea
+venv*/
+.vscode/*
+test*/
+.vscode/launch.json
+launch.json
+
+# Private deployment configuration (commit templates only)
+/config/config.yaml
+/config/config.*.yaml
+!/config/config.example.yaml
+.env
+.env.*
+!.env.example
+*.pem
+*.key

@@ -53,62 +53,6 @@ def _find_file_paths_in_json(node: Any) -> set:
     return paths
 
 
-# AASX Export를 위한 JSON 경로 수정 및 파일 매핑 헬퍼
-def prepare_aasx_structure(node: Any, available_files: dict) -> tuple[Any, dict]:
-    """
-    JSON을 재귀적으로 탐색하여:
-    1. 'File' 타입 요소의 value를 '/aasx/files/파일명'으로 변경 (AAS Explorer 호환용)
-    2. 해당 파일이 available_files(DB에서 조회한 파일들)에 있다면 attachments_dict에 추가
-    
-    Returns:
-        modified_node: 경로가 수정된 JSON 객체
-        attachments: AASX 생성용 파일 딕셔너리 {'aasx/files/filename': base64_content}
-    """
-    attachments = {}
-
-    if isinstance(node, dict):
-        # 원본 객체 복사 (원본 데이터 보존을 위해)
-        new_node = node.copy()
-        
-        # modelType이 File인 경우 처리
-        if new_node.get("modelType") == "File":
-            val = new_node.get("value")
-            if val and isinstance(val, str):
-                # 경로가 URL이든 절대경로든 상관없이 '파일명'만 추출
-                filename = os.path.basename(val.strip())
-                
-                # DB에서 조회해온 파일 목록(available_files)에 이 파일명이 있는지 확인
-                if filename in available_files:
-                    # 1. JSON의 value를 AASX 표준 내부 경로로 변경 (/aasx/files/파일명)
-                    target_path = f"/aasx/files/{filename}"
-                    new_node["value"] = target_path
-                    
-                    # 2. 첨부파일 딕셔너리에 추가 (ZIP 내부 경로 : Base64 컨텐츠)
-                    # ZIP 내부 경로는 맨 앞의 '/'를 뺍니다.
-                    zip_inner_path = f"aasx/files/{filename}"
-                    
-                    content_bytes = available_files[filename]["content"]
-                    attachments[zip_inner_path] = base64.b64encode(content_bytes).decode("utf-8")
-        
-        # 재귀 탐색 (자식 노드들도 수정)
-        for k, v in new_node.items():
-            child_node, child_attachments = prepare_aasx_structure(v, available_files)
-            new_node[k] = child_node
-            attachments.update(child_attachments)
-            
-        return new_node, attachments
-
-    elif isinstance(node, list):
-        new_list = []
-        for item in node:
-            child_node, child_attachments = prepare_aasx_structure(item, available_files)
-            new_list.append(child_node)
-            attachments.update(child_attachments)
-        return new_list, attachments
-
-    else:
-        return node, attachments
-
 def start_jvm():
 
     setJavaEnvironment()
@@ -388,7 +332,7 @@ async def aasModelDownloadEvent(userinfo, body: AASDownloadRequest, format: str,
 # AASX 구조를 위한 JSON 변환 및 첨부파일 맵핑 헬퍼
 def prepare_aasx_structure(node: Any, available_files: dict) -> tuple[Any, dict]:
     """
-    JSON을 재귀적으로 탐색하여:
+    JSON을 탐색하여:
     1. 'File' 타입 요소의 value를 '/aasx/files/파일명'으로 변경 (AAS Explorer 호환용)
     2. 해당 파일이 available_files(DB에서 조회한 파일들)에 있다면 attachments_dict에 추가
     
@@ -406,24 +350,46 @@ def prepare_aasx_structure(node: Any, available_files: dict) -> tuple[Any, dict]
         if new_node.get("modelType") == "File":
             val = new_node.get("value")
             if val and isinstance(val, str):
-                # URL이나 절대경로에서 파일명만 추출
-                filename = os.path.basename(val.strip())
+                # URL이나 절대경로에서 파일명만 추출 (예: 프론트엔드에서 넘어온 URL의 맨 끝 UUID_파일명)
+                filename_from_val = os.path.basename(val.strip())
+                # URL 파라미터가 붙어있을 경우 제거
+                filename_from_val = urllib.parse.unquote(filename_from_val).split('?')[0]
                 
-                # DB에서 가져온 파일 목록에 해당 파일명이 있는지 확인
-                if filename in available_files:
-                    # 1. JSON value를 AASX 내부 경로로 변경
-                    # AAS Package Explorer는 보통 '/aasx/files/' 또는 상대경로를 선호합니다.
-                    target_path = f"/aasx/files/{filename}"
+                matched_file = None
+                
+                # 딕셔너리 키(원본 파일명)로 바로 매칭 (새로 추가한 파일의 경우)
+                if filename_from_val in available_files:
+                    matched_file = available_files[filename_from_val]
+                else:
+                    # 물리적 경로(realpath) 기준으로 전체 탐색 (수정 모드에서 기존 파일의 URL 대응)
+                    for file_info in available_files.values():
+                        realpath = file_info.get('realpath')
+                        if realpath:
+                            # DB에 저장된 실제 경로의 파일명 추출
+                            basename_in_db = os.path.basename(realpath.strip('/'))
+                            # 프론트엔드가 보낸 파일명과 DB의 실제 물리적 파일명이 일치하는지 확인
+                            if basename_in_db == filename_from_val or urllib.parse.unquote(basename_in_db) == filename_from_val:
+                                matched_file = file_info
+                                break
+                        
+                        # 프론트엔드 URL 문자열 안에 원본 파일명이 포함되어 있는지 검사
+                        if file_info.get('filename') and file_info.get('filename') in filename_from_val:
+                            matched_file = file_info
+                            break
+
+                # 매칭된 파일이 발견되면 JSON 경로 변경 및 압축 대상에 추가
+                if matched_file:
+                    # AASX 패키지 내 이름 충돌 방지를 위해 UUID가 포함된 이름(realpath 기반) 사용
+                    safe_filename = os.path.basename(matched_file.get('realpath', matched_file['filename']).strip('/'))
+                    
+                    target_path = f"/aasx/files/{safe_filename}"
                     new_node["value"] = target_path
                     
-                    # 2. 첨부파일 딕셔너리에 추가 (Zip 내부 경로 : Base64 컨텐츠)
-                    # 주의: zip 내부 경로는 맨 앞의 '/'를 제외하는 것이 일반적입니다.
-                    zip_inner_path = f"aasx/files/{filename}"
-                    
-                    content_bytes = available_files[filename]["content"]
+                    zip_inner_path = f"aasx/files/{safe_filename}"
+                    content_bytes = matched_file["content"]
                     attachments[zip_inner_path] = base64.b64encode(content_bytes).decode("utf-8")
         
-        # 재귀 탐색 (값 수정)
+        # 탐색 (값 수정)
         for k, v in new_node.items():
             child_node, child_attachments = prepare_aasx_structure(v, available_files)
             new_node[k] = child_node
@@ -480,6 +446,91 @@ async def generateAasFile(userinfo, body: AASDownloadRequest, format: str, model
                 # 데이터 정제 및 정규화
                 db_result = clean_empty_structures(db_result)
                 db_result = normalize_text(db_result)
+
+                # Instance: submodels 참조 추가 및 idShort 복구
+                if modelType == "instance" and isinstance(db_result, dict):
+                    shells = db_result.get("assetAdministrationShells", [])
+                    if shells and isinstance(shells, list) and len(shells) > 0:
+                        shell = shells[0]
+
+                        try:
+                            raw_sql = f"SELECT metadata_aaset_administration_shells FROM aasrepo.aasinstance_aasmodels WHERE instance_seq = {body.model_key};"
+                            raw_rst = await async_postQueryDataOne(raw_sql)
+                            
+                            if raw_rst and raw_rst.get("result") == "ok" and raw_rst.get("data"):
+                                raw_data = raw_rst["data"]
+                                if isinstance(raw_data, dict) and "metadata_aaset_administration_shells" in raw_data:
+                                    raw_shells = raw_data["metadata_aaset_administration_shells"]
+                                    if raw_shells and isinstance(raw_shells, list) and len(raw_shells) > 0:
+                                        original_refs = raw_shells[0].get("submodels")
+                                        if original_refs is not None:
+                                            shell["submodels"] = original_refs
+                        except Exception as e:
+                            print(f"[ORDER RESTORE ERROR] {e}")
+
+
+
+                        # idShort 복구
+                        if "idShort" not in shell or not shell["idShort"]:
+                            try:
+                                sql_name = f"SELECT instance_name FROM aasrepo.aasinstance WHERE instance_seq = {body.model_key};"
+                                rst_name = await async_postQueryDataOne(sql_name)
+                                if rst_name and rst_name.get("result") == "ok" and rst_name.get("data"):
+                                    shell["idShort"] = rst_name["data"].get("instance_name", "Instance")
+                                else:
+                                    shell["idShort"] = "Instance"
+                            except Exception:
+                                shell["idShort"] = "Instance"
+                        
+                        # submodels 참조 배열 추가
+                        submodels_list = db_result.get("submodels", [])
+                        
+                        if submodels_list and isinstance(submodels_list, list):
+                            if "submodels" not in shell:
+                                shell["submodels"] = []
+
+                            ui_ordered_ids = []
+                            try:
+                                raw_sql = f"SELECT metadata_aaset_administration_shells FROM aasrepo.aasinstance_aasmodels WHERE instance_seq = {body.model_key};"
+                                raw_rst = await async_postQueryDataOne(raw_sql)
+                                if raw_rst and raw_rst.get("result") == "ok" and raw_rst.get("data"):
+                                    raw_shells = raw_rst["data"].get("metadata_aaset_administration_shells")
+                                    if isinstance(raw_shells, list) and len(raw_shells) > 0:
+                                        orig_refs = raw_shells[0].get("submodels", [])
+                                        for ref in orig_refs:
+                                            if ref.get("keys") and len(ref["keys"]) > 0:
+                                                ui_ordered_ids.append(str(ref["keys"][0].get("value")).strip())
+                            except Exception as e:
+                                print(f"[UI ORDER TRACE ERROR] {e}")
+
+                            existing_refs = set()
+                            for ref in shell["submodels"]:
+                                if isinstance(ref, dict) and "keys" in ref and len(ref["keys"]) > 0:
+                                    existing_refs.add(ref["keys"][0].get("value"))
+
+                            for sm in submodels_list:
+                                sm_id = sm.get("id")
+                                if sm_id:
+                                    if sm_id not in existing_refs:
+                                        shell["submodels"].append({
+                                            "type": "ModelReference",
+                                            "keys": [{
+                                                "type": "Submodel",
+                                                "value": sm_id
+                                            }]
+                                        })
+                                        existing_refs.add(sm_id)
+
+                            if ui_ordered_ids:
+                                def get_ui_sort_index(ref):
+                                    try:
+                                        ref_id = str(ref["keys"][0].get("value")).strip()
+                                        return ui_ordered_ids.index(ref_id)
+                                    except (KeyError, IndexError, ValueError):
+                                        return 9999  
+                                
+                                shell["submodels"].sort(key=get_ui_sort_index)
+
                 
                 # 최종 JSON 객체 (기본값)
                 final_json_obj = db_result

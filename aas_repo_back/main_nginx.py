@@ -154,6 +154,8 @@ def create_app(port: int, max_requests: int):
             print(f"[StaticFiles] Error mounting {sm_file_url}: {str(e)}")
 
     app.include_router(auth.router)
+    from router import sso
+    app.include_router(sso.router)
     app.include_router(aasmodel.router)
     app.include_router(aassubmodel.router)
     app.include_router(aasBasyx.router)

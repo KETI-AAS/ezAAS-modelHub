@@ -7,28 +7,39 @@ import {
   Box,
   Button,
   Card,
+  Combobox,
   Container,
   Flex,
   Group,
+  InputBase,
   JsonInput,
   List,
+  Select,
+  Switch,
   Text,
+  Textarea,
   TextInput,
+  Tooltip,
   NumberInput,
   FileInput,
   ThemeIcon,
   Title,
   Tree,
+  useCombobox,
   useTree,
   Highlight,
   getTreeExpandedState,
 } from "@mantine/core";
+import { modals } from "@mantine/modals";
 import {
   IconSquareRoundedMinus,
   IconSquareRoundedPlus,
   IconCurrencyLeu,
   IconTrash,
   IconPlus,
+  IconRefresh,
+  IconCopy,
+  IconCornerDownRight,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { confirmSave } from "@/utils/modal";
@@ -37,9 +48,144 @@ import { showToast } from "@/utils/toast";
 import ElementAdd from "../instance/ElementAdd";
 import FilePreviewModal from "../instance/FilePreviewModal";
 import { useDisclosure } from "@mantine/hooks";
-import { size } from "lodash";
+import _ from "lodash";
+import { industrialLanguages } from "@/constants/languages";
+import {
+  DataTypeDefXsdOptionItems,
+  EntityTypes,
+  ReferenceTypes,
+  getDataTypeDefXsdRule,
+} from "@/constants/aasConstants";
+import type { ValidationErrors } from "@/utils/validation";
 
 const PREVIEW_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/gif"];
+
+const isBooleanLikeValue = (value: unknown) =>
+  value === true || value === "true" || value === 1 || value === "1";
+
+const toDateTimeLocalValue = (value: unknown) => {
+  if (typeof value !== "string" || !value) {
+    return "";
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return "";
+  }
+
+  const parsedDate = new Date(trimmedValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return trimmedValue.replace(/Z$/, "");
+  }
+
+  const timezoneOffset = parsedDate.getTimezoneOffset();
+  const localDate = new Date(parsedDate.getTime() - timezoneOffset * 60_000);
+  return localDate.toISOString().slice(0, 19);
+};
+
+const fromDateTimeLocalValue = (value: string) => {
+  if (!value) {
+    return "";
+  }
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return parsedDate.toISOString();
+};
+
+const getErrorPath = (stateKey: string, pathPrefix?: string) => {
+  if (!pathPrefix) {
+    return stateKey;
+  }
+
+  return stateKey.startsWith("[") ? `${pathPrefix}${stateKey}` : `${pathPrefix}.${stateKey}`;
+};
+
+const toDateInputValue = (value: unknown) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().slice(0, 10);
+};
+
+const getNodeErrorCount = (
+  node: any,
+  errors?: ValidationErrors,
+  errorPathPrefix?: string
+) => {
+  if (!errors || Object.keys(errors).length === 0) {
+    return 0;
+  }
+
+  const nodePath =
+    typeof node?.valuePath === "string" && node.valuePath
+      ? getErrorPath(node.valuePath, errorPathPrefix)
+      : undefined;
+
+  if (nodePath) {
+    return Object.keys(errors).filter(
+      (errorPath) => errorPath === nodePath || errorPath.startsWith(`${nodePath}.`) || errorPath.startsWith(`${nodePath}[`)
+    ).length;
+  }
+
+  if (errorPathPrefix && node?.modelType === "ConceptDescriptions") {
+    return Object.keys(errors).filter((errorPath) => errorPath.startsWith(errorPathPrefix)).length;
+  }
+
+  return 0;
+};
+
+// buildKeysFromPath: valuePath를 기반으로 계층 구조의 keys 배열을 생성합니다.
+const buildKeysFromPath = (path: string, fullState: any) => {
+  if (!fullState) return [];
+  
+  const parts = _.toPath(path);
+  const keys: any[] = [];
+  let currentPath = "";
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (currentPath === "") {
+      currentPath = part;
+    } else if (/^\d+$/.test(part)) {
+      currentPath += `[${part}]`;
+    } else {
+      currentPath += `.${part}`;
+    }
+
+    const obj = _.get(fullState, currentPath);
+    if (obj && obj.modelType) {
+      let keyValue = obj.idShort;
+      
+      // Identifiable 타입인 경우 id를 사용
+      if (["AssetAdministrationShell", "Submodel", "ConceptDescription"].includes(obj.modelType)) {
+        keyValue = obj.id;
+      }
+
+      // SubmodelElementList 내부의 요소인 경우 인덱스를 값으로 사용
+      // currentPath 예: submodels[0].submodelElements[1].value[0]
+      const listMatch = currentPath.match(/(.*)\.value\[(\d+)\]$/);
+      if (listMatch) {
+        const parentListPath = listMatch[1];
+        const index = listMatch[2];
+        const parentList = _.get(fullState, parentListPath);
+        if (parentList && parentList.modelType === "SubmodelElementList") {
+          keyValue = index;
+        }
+      }
+
+      keys.push({
+        type: obj.modelType,
+        value: keyValue,
+      });
+    }
+  }
+  return keys;
+};
 
 // RenderObject: 재귀적으로 객체 내부의 속성을 렌더링합니다.
 // editMode가 true이면 TextInput으로 입력 가능, false이면 단순 Text로 보여줍니다.
@@ -52,6 +198,10 @@ export const RenderObject = memo(
     editMode,
     isInstance,
     instanceSeq,
+    treeData,
+    fullState,
+    errors,
+    errorPathPrefix,
   }: {
     obj: any;
     indent?: number;
@@ -60,6 +210,10 @@ export const RenderObject = memo(
     onValueChange?: (key: string, value: any, file?: File | undefined) => void;
     isInstance?: boolean;
     instanceSeq?: string;
+    treeData?: any;
+    fullState?: any;
+    errors?: ValidationErrors;
+    errorPathPrefix?: string;
   }) => {
 
     // semanticId 필드의 접힘/펼침 상태를 관리 (기본값: false, 접힌 상태)
@@ -71,6 +225,8 @@ export const RenderObject = memo(
     const [previewFile, setPreviewFile] = useState<{ url: string; type: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+    const valueTypeCombobox = useCombobox();
+    const [valueTypeSearch, setValueTypeSearch] = useState("");
     const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
     const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
     const getCorrectedUrl = (url: string) => {
@@ -109,15 +265,15 @@ export const RenderObject = memo(
       SubmodelElementCollection: ["idShort", "description", "semanticId"],
       SubmodelElementList: ["idShort", "description", "semanticId"],
       Property: ["idShort", "description", "semanticId", "valueType", "originalValue"],
-      MultiLanguageProperty: ["idShort", "description", "semanticId", "valueType", "originalValue"],
+      MultiLanguageProperty: ["idShort", "description", "semanticId", "originalValue"],
       Range: ["idShort", "description", "semanticId", "valueType", "min", "max"],
       // File: ["idShort", "description", "semanticId", "contentType", "originalValue"],
       File: ["idShort", "description", "semanticId", "contentType", "originalValue"],
       ReferenceElement: ["idShort", "description", "semanticId", "originalValue"],
 
-      Entity: ["idShort", "description", "entityType", "globalAssetId", "statements"],
+      Entity: ["idShort", "description", "semanticId", "entityType", "globalAssetId", "statements"],
       // Relationship (BoM)
-      RelationshipElement: ["idShort", "description", "first", "second", "originalValue"],
+      RelationshipElement: ["idShort", "description", "semanticId", "first", "second"],
 
       // ConceptDescription 상세 뷰에 표시할 키
       ConceptDescription: [
@@ -139,6 +295,114 @@ export const RenderObject = memo(
     const filteredEntries = keysToShow
       ? allEntries.filter(([k]) => keysToShow.includes(k))
       : allEntries;
+
+    const openReferenceModal = (keysPath: string) => {
+      if (!treeData) return;
+      modals.open({
+        title: "Select AAS Element for ModelReference",
+        size: "xl",
+        children: (
+          <Box p="md">
+            <AASTree
+              data={treeData}
+              editMode={false}
+              simpleView={true}
+              onNodeClick={(selectedNode) => {
+                if (selectedNode && selectedNode.valuePath) {
+                  const keys = buildKeysFromPath(
+                    selectedNode.valuePath,
+                    fullState || state
+                  );
+
+                  if (onValueChange) {
+                    onValueChange(keysPath, keys);
+                  }
+                  setInnerState((prev: any) => ({
+                    ...prev,
+                    [keysPath]: keys,
+                  }));
+                  state[keysPath] = keys;
+
+                  modals.closeAll();
+                  showToast.success(
+                    "Reference keys updated from selected node hierarchy."
+                  );
+                }
+              }}
+              fullState={fullState || state}
+            />
+          </Box>
+        ),
+      });
+    };
+
+    const handleReferenceTypeChange = async (val: string | null, stateKey: string) => {
+      const keysPath = stateKey.replace(/\.type$/, ".keys");
+      const currentKeys = innerState[keysPath] ?? _.get(fullState || state, keysPath) ?? [];
+      
+      const isExternalToModel = val === "ModelReference";
+      const isModelToExternal = val === "ExternalReference";
+
+      if (isExternalToModel) {
+        // ExternalReference -> ModelReference
+        // GlobalReference의 value가 입력된 경우만 확인창 띄움
+        const hasGlobalRefValue = Array.isArray(currentKeys) && currentKeys.some(k => k.type === "GlobalReference" && k.value);
+        if (hasGlobalRefValue) {
+            const confirmed = await confirmSave("ModelReference로 변경하면 기존의 외부 참조(GlobalReference) 정보가 삭제되며, AAS 내부의 엘리먼트를 새로 선택해야 합니다. 계속하시겠습니까?", { labels: { confirm: "확인", cancel: "취소" } });
+            if (!confirmed) {
+              // Revert Select value if canceled - this is tricky because Select is controlled by innerState
+              setInnerState((prev: any) => ({ ...prev, [stateKey]: innerState[stateKey] }));
+              return;
+            }
+        }
+        
+        // 데이터 초기화: 기존의 GlobalReference 키를 삭제하고 빈 keys 배열로 만듭니다.
+        const newKeys: any[] = [];
+        setInnerState((prev: any) => ({ ...prev, [stateKey]: val, [keysPath]: newKeys }));
+        if (onValueChange) {
+            onValueChange(stateKey, val);
+            onValueChange(keysPath, newKeys);
+        }
+        state[stateKey] = val;
+        state[keysPath] = newKeys;
+
+        // AAS 트리 선택 팝업 활성화
+        if (treeData && !stateKey.includes("semanticId")) {
+            openReferenceModal(keysPath);
+        }
+      } else if (isModelToExternal) {
+        // ModelReference -> ExternalReference
+        // GlobalReference 제외하고 value가 입력된 경우만 확인창 띄움
+        const hasOtherValues = Array.isArray(currentKeys) && currentKeys.some(k => k.type !== "GlobalReference" && k.value);
+        if (hasOtherValues) {
+            const confirmed = await confirmSave("ExternalReference로 변경하면 기존에 작성된 하위 경로(SubmodelElement 등)가 삭제되고 GlobalReference 형식으로 초기화됩니다. 계속하시겠습니까?", { labels: { confirm: "확인", cancel: "취소" } });
+            if (!confirmed) {
+              setInnerState((prev: any) => ({ ...prev, [stateKey]: innerState[stateKey] }));
+              return;
+            }
+        }
+
+        // 데이터 초기화: ExternalReference 기본값으로 설정
+        const newKeys = [{ type: "GlobalReference", value: "" }];
+        setInnerState((prev: any) => ({ ...prev, [stateKey]: val, [keysPath]: newKeys }));
+        if (onValueChange) {
+            onValueChange(stateKey, val);
+            onValueChange(keysPath, newKeys);
+        }
+        state[stateKey] = val;
+        state[keysPath] = newKeys;
+      } else {
+        // Fallback for other types
+        setInnerState((prev: any) => ({
+          ...prev,
+          [stateKey]: val,
+        }));
+        if (onValueChange) {
+          onValueChange(stateKey, val);
+        }
+        state[stateKey] = val;
+      }
+    };
 
     return (
       <div
@@ -167,30 +431,31 @@ export const RenderObject = memo(
           .sort((a, b) => {
             // 필드 순서를 직접 정의합니다.
             const fieldOrder = [
-              "originalValue",
               "idShort",
               "valueType",
+              "originalValue",
               "id",
               
               //"value",
               
               "min",
               "max",
+              "first",
+              "second",
               "contentType",
               "entityType",
               "globalAssetId",
               "kind",
-              "semanticId",
               "description",
+              "semanticId",
               // --- 기타 필드 (순서대로 추가) ---
               "isCaseOf",
               "embeddedDataSpecifications",
               "assetInformation",
               "statements",
-              "first",
-              "second",
               "submodels",
                
+              "type",
               "keys" 
             ];
 
@@ -229,8 +494,11 @@ export const RenderObject = memo(
             const isSubmodelId = typeof parentKey === 'string' && parentKey.startsWith("submodels[") && key === "id";
             const isSemanticIdValue = stateKey.endsWith("semanticId.keys[0].value");
             const isFileElement = obj.modelType === "File";
+            const isFileValueField = isFileElement && key === "originalValue";
             const isRangeMin = obj.modelType === "Range" && key === "min";
             const isRangeMax = obj.modelType === "Range" && key === "max";
+            const isValueTypeElement = obj.modelType === "Property" || obj.modelType === "Range";
+            const isValueTypeTargetField = isValueTypeElement && (key === "originalValue" || key === "min" || key === "max");
 
             // semanticId 내부 필드인지 확인하는 변수 추가
             // stateKey (e.g., "...semanticId.keys[0].value")에 ".semanticId."가 포함되어 있는지 확인
@@ -244,9 +512,22 @@ export const RenderObject = memo(
             // Submodel ID는 수정 불가능하게 유지하고, semanticId.keys[0].value는 수정 가능하게 합니다.
             let tempEditMode = editMode ? (!isSubmodelId || isSemanticIdValue) : false;
 
+            const currentValueType =
+              innerState[`${parentKey}.valueType`] ??
+              state[`${parentKey}.valueType`] ??
+              obj.valueType;
+            const valueTypeRule = isValueTypeTargetField
+              ? getDataTypeDefXsdRule(currentValueType)
+              : undefined;
+            const currentFieldValue = innerState[stateKey] ?? value ?? "";
+            const fieldError = errors?.[getErrorPath(stateKey, errorPathPrefix)];
+            const filteredValueTypeOptions = DataTypeDefXsdOptionItems.filter((item) =>
+              item.label.toLowerCase().includes(valueTypeSearch.trim().toLowerCase())
+            );
+
             // input field 스타일링 로직 
             const inputStyle: React.CSSProperties = {};
-            if (isInsideSemanticId) {
+            if ((isInsideSemanticId && !isSemanticIdValue) || (isFileElement && key === "contentType")) {
               inputStyle.color = "#b3bec7ff"; // 기존 read-only 필드
             } else if (key === "originalValue") {
               // originalValue 필드 하이라이트
@@ -312,25 +593,26 @@ export const RenderObject = memo(
                       <Flex direction="column" gap="xs" w="100%">
                         {mlpValue.map((item: any, idx: number) => (
                           <Group key={idx} gap="xs" wrap="nowrap">
-                             {/* 1. 언어 코드 입력 (예: en, ko, de) */}
-                            <TextInput
+                             {/* 1. 언어 코드 입력 (Select 박스 사용) */}
+                            <Select
+                              id={`${stateKey}[${idx}].language`}
                               placeholder="Lang"
-                              size="xs"
                               w={80}
+                              data={industrialLanguages}
                               value={item.language || ""}
-                              readOnly={!editMode} // 편집 모드가 아니면 읽기 전용
-                              onChange={(e) => {
+                              readOnly={!editMode}
+                              disabled={!editMode}
+                              onChange={(val) => {
                                 const newValue = [...mlpValue];
-                                // 해당 인덱스의 language 값 업데이트
-                                newValue[idx] = { ...newValue[idx], language: e.target.value };
+                                newValue[idx] = { ...newValue[idx], language: val };
                                 setInnerState((prev: any) => ({ ...prev, [stateKey]: newValue }));
                                 if (onValueChange) onValueChange(stateKey, newValue);
                               }}
                             />
                             {/* 2. 텍스트 값 입력 */}
                             <TextInput
+                              id={`${stateKey}[${idx}].text`}
                               placeholder="Text value"
-                              size="xs"
                               style={{ flexGrow: 1 }}
                               value={item.text || ""}
                               readOnly={!editMode}
@@ -366,6 +648,117 @@ export const RenderObject = memo(
                            <Text c="dimmed" size="xs" fs="italic" pl={1}>No values defined.</Text>
                         )}
                       </Flex>
+                    </div>
+                  </Group>
+                </React.Fragment>
+              );
+            }
+            
+            // Reference.keys 전용 UI 로직
+            if (key === "keys" && Array.isArray(value)) {
+              const currentValue = innerState[stateKey] ?? value;
+              const keysValue = Array.isArray(currentValue) ? currentValue : [];
+              const isSemanticIdKeys = stateKey.includes("semanticId");
+              const keyTypeInputStyle: React.CSSProperties = {
+                width: "230px",
+                color: "#b3bec7ff",
+              };
+              
+              const typeKey = stateKey.replace(/\.keys$/, ".type");
+              const currentType = innerState[typeKey] ?? renderableObj.type;
+              const isExternalReference = currentType === "ExternalReference";
+
+              return (
+                <React.Fragment key={`${key}-${index}`}>
+                  <Group w={"100%"} py="4" justify="space-between" wrap="nowrap" gap="xl">
+                    <div style={{ width: "100%" }}>
+                      <Title
+                        order={3}
+                        mb={"4"}
+                        style={{
+                          backgroundColor: "#fefefe",
+                          border: "1px solid #efefef",
+                          borderRadius: "5px",
+                          padding: "5px 15px",
+                          color: "#333",
+                          fontSize: '14px',
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center"
+                        }}
+                      >
+                        <div>
+                          <i
+                            className="fa-regular fa-file-lines me-2"
+                            style={{ color: "#ee8843" }}
+                          ></i>{" "}
+                          {displayLabel}
+                        </div>
+
+                        {/* 편집 모드이고 ModelReference 일 때만 새로고침 버튼 표시 */}
+                        {!isSemanticIdKeys && (tempEditMode || editMode) && currentType === "ModelReference" && (
+                          <ActionIcon
+                            variant="light"
+                            color="blue"
+                            size="sm"
+                            title="Refresh Key"
+                            onClick={() => openReferenceModal(stateKey)}
+                          >
+                            <IconRefresh size={14} />
+                          </ActionIcon>
+                        )}
+                      </Title>
+
+                      {/* Key별 입력 리스트 영역 */}
+                      <div>
+                        <div
+                          style={{
+                            paddingLeft: `calc(1rem * ${indent + 1})`,
+                            whiteSpace: "pre-wrap",
+                            width: "100%",
+                          }}
+                        >
+                        {keysValue.map((item: any, idx: number) => (
+                          <Group key={idx} py="4" gap="xs" wrap="nowrap">
+                            <input
+                              type="text"
+                              className="fs-8 form-control"
+                              id={`${stateKey}[${idx}].type`}
+                              value={item.type || ""}
+                              readOnly
+                              style={keyTypeInputStyle}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="fs-8 form-control"
+                              id={`${stateKey}[${idx}].value`}
+                              value={item.value || ""}
+                              readOnly={!editMode || !isExternalReference}
+                              style={{
+                                ...((!editMode || !isExternalReference) ? { color: "#b3bec7ff" } : {}),
+                                flexGrow: 1,
+                              }}
+                              onChange={(e) => {
+                                const newValue = [...keysValue];
+                                // 해당 인덱스의 value 값 업데이트
+                                newValue[idx] = { ...newValue[idx], value: e.target.value };
+                                setInnerState((prev: any) => ({ ...prev, [stateKey]: newValue }));
+                                if (onValueChange) onValueChange(stateKey, newValue);
+                              }}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                              }}
+                            />
+                          </Group>
+                        ))}
+                        {keysValue.length === 0 && !editMode && (
+                          <Text c="dimmed" size="xs" fs="italic" pl={1}>No keys defined.</Text>
+                        )}
+                        </div>
+                      </div>
                     </div>
                   </Group>
                 </React.Fragment>
@@ -433,6 +826,10 @@ export const RenderObject = memo(
                                     editMode={tempEditMode || canEditDescription}
                                     isInstance={isInstance}
                                     instanceSeq={instanceSeq}
+                                    treeData={treeData}
+                                    fullState={fullState}
+                                    errors={errors}
+                                    errorPathPrefix={errorPathPrefix}
                                   />
                                 ) : (
                                   item
@@ -475,13 +872,22 @@ export const RenderObject = memo(
                         </Title>
                         {isSemanticIdExpanded && (
                           <RenderObject
-                            obj={{ ...value, valuePath: stateKey }}
+                            obj={{ 
+                              type: "ExternalReference", 
+                              keys: [{ type: "GlobalReference", value: "" }], 
+                              ...(value || {}), 
+                              valuePath: stateKey 
+                            }}
                             state={state}
                             indent={indent + 1}
                             onValueChange={onValueChange}
                             editMode={tempEditMode || canEditDescription}
                             isInstance={isInstance}
                             instanceSeq={instanceSeq}
+                            treeData={treeData}
+                            fullState={fullState}
+                            errors={errors}
+                            errorPathPrefix={errorPathPrefix}
                           />
                         )}
                       </div>
@@ -518,6 +924,10 @@ export const RenderObject = memo(
                                 editMode={tempEditMode || canEditDescription}
                                 isInstance={isInstance}
                                 instanceSeq={instanceSeq}
+                                treeData={treeData}
+                                fullState={fullState}
+                                errors={errors}
+                                errorPathPrefix={errorPathPrefix}
                               />
                             ) : (
                               item
@@ -528,7 +938,7 @@ export const RenderObject = memo(
 
                     // 'value'를 'renderValue'로 변경
                     ) : typeof renderValue === "object" && renderValue !== null ? ( 
-                      <div key={`${key}-${index}`} style={{ paddingLeft: `calc(1rem * ${indent})` }}> {/* key prop 추가 */}
+                      <div key={`${key}-${index}`} style={{ paddingLeft: `calc(1rem * ${indent})` }}>
                         <Title
                           order={3}
                           mb={"4"}
@@ -556,6 +966,10 @@ export const RenderObject = memo(
                           editMode={tempEditMode || canEditDescription}
                           isInstance={isInstance}
                           instanceSeq={instanceSeq}
+                          treeData={treeData}
+                          fullState={fullState}
+                          errors={errors}
+                          errorPathPrefix={errorPathPrefix}
                         />
                       </div>
                     ) : (
@@ -577,29 +991,242 @@ export const RenderObject = memo(
 
                     {tempEditMode || canEditDescription ? (
                       // --- 편집 모드 ---
-                      <Flex style={{width: '100%'}} gap="xs">
-                        <input
-                          type={isRangeMin || isRangeMax ? "number" : "text"}
-                          className="fs-8 form-control"
-                          id={stateKey}
-                          value={innerState[stateKey] ?? value ?? ''} // value prop 단순화
-                          onChange={(e) => {
-                            setInnerState((prev) => ({
-                              ...prev,
-                              [stateKey]: e.target.value,
-                            }));
-                            if (onValueChange) {
-                              onValueChange(e.target.id, e.target.value);
-                            }
-                            state[e.target.id] = e.target.value;
-                          }}
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                          }}
-                          // semanticId 내부 필드일 경우 readOnly 및 연한 글자색 적용
-                          readOnly={isInsideSemanticId}
-                          style={inputStyle}
-                        />
+                      <Flex
+                        style={{ width: "100%" }}
+                        gap="xs"
+                        direction={isFileValueField ? "row" : "column"}
+                        align={isFileValueField ? "center" : undefined}
+                      >
+                        {key === "language" ? (
+                          <Select
+                            id={stateKey}
+                            style={{ flexGrow: 1 }}
+                            data={industrialLanguages}
+                            value={innerState[stateKey] ?? value ?? ""}
+                            onChange={(val) => {
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: val,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(stateKey, val);
+                              }
+                              state[stateKey] = val;
+                            }}
+                          />
+                        ) : key === "valueType" ? (
+                          <Combobox
+                            store={valueTypeCombobox}
+                            withinPortal={false}
+                            onOptionSubmit={(val) => {
+                              setValueTypeSearch(val);
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: val,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(stateKey, val);
+                              }
+                              state[stateKey] = val;
+                              valueTypeCombobox.closeDropdown();
+                            }}
+                          >
+                            <Combobox.Target>
+                              <TextInput
+                                id={stateKey}
+                                style={{ flexGrow: 1 }}
+                                value={innerState[stateKey] ?? value ?? ""}
+                                onFocus={() => {
+                                  setValueTypeSearch("");
+                                }}
+                                onClick={() => {
+                                  setValueTypeSearch("");
+                                  valueTypeCombobox.toggleDropdown();
+                                }}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                  const nextValue = e.currentTarget.value;
+                                  setValueTypeSearch(nextValue);
+                                  setInnerState((prev: any) => ({
+                                    ...prev,
+                                    [stateKey]: nextValue,
+                                  }));
+                                  if (onValueChange) {
+                                    onValueChange(stateKey, nextValue);
+                                  }
+                                  state[stateKey] = nextValue;
+                                  
+                                  valueTypeCombobox.openDropdown();
+                                }}
+                                onBlur={() => {
+                                  valueTypeCombobox.closeDropdown();
+                                }}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                }}
+                                rightSection={<Combobox.Chevron />}
+                              />
+                            </Combobox.Target>
+
+                            <Combobox.Dropdown>
+                              <Combobox.Options mah={240} style={{ overflowY: "auto" }}>
+                                {filteredValueTypeOptions.length > 0 && (
+                                  filteredValueTypeOptions.map((item) => (
+                                    <Combobox.Option value={item.value} key={item.value}>
+                                      {item.label}
+                                    </Combobox.Option>
+                                  ))
+                                )}
+                              </Combobox.Options>
+                            </Combobox.Dropdown>
+                          </Combobox>
+                        ) : valueTypeRule?.inputKind === "boolean" ? (
+                          <Switch
+                            id={stateKey}
+                            checked={isBooleanLikeValue(currentFieldValue)}
+                            onChange={(e) => {
+                              const nextValue = e.currentTarget.checked ? "true" : "false";
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: nextValue,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(stateKey, nextValue);
+                              }
+                              state[stateKey] = nextValue;
+                            }}
+                            onLabel="true"
+                            offLabel="false"
+                            size="xl"
+                            styles={{
+                              root: { paddingTop: 6, paddingBottom: 6 },
+                              track: { minWidth: 72, height: 36 },
+                              thumb: { width: 28, height: 28 },
+                              body: { alignItems: "center" },
+                              labelWrapper: { fontSize: "14px" },
+                            }}
+                          />
+                        ) : valueTypeRule?.inputKind === "date" ? (
+                          <input
+                            type="date"
+                            className="fs-8 form-control"
+                            id={stateKey}
+                            value={toDateInputValue(currentFieldValue)}
+                            onChange={(e) => {
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: e.target.value,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(e.target.id, e.target.value);
+                              }
+                              state[e.target.id] = e.target.value;
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                            style={inputStyle}
+                          />
+                        ) : valueTypeRule?.inputKind === "datetime-local" ? (
+                          <input
+                            type="datetime-local"
+                            className="fs-8 form-control"
+                            id={stateKey}
+                            value={toDateTimeLocalValue(currentFieldValue)}
+                            onChange={(e) => {
+                              const nextValue = fromDateTimeLocalValue(e.target.value);
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: nextValue,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(e.target.id, nextValue);
+                              }
+                              state[e.target.id] = nextValue;
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                            style={inputStyle}
+                          />
+                        ) : key === "type" && obj.hasOwnProperty("keys") && !isInsideSemanticId ? (
+                          <Select
+                              id={stateKey}
+                              style={{ flexGrow: 1 }}
+                              data={ReferenceTypes}
+                              value={innerState[stateKey] ?? value ?? ""}
+                              onChange={(val) => handleReferenceTypeChange(val, stateKey)}
+                            />
+                        ) : key === "entityType" ? (
+                          <Select
+                            id={stateKey}
+                            style={{ flexGrow: 1 }}
+                            data={EntityTypes}
+                            value={innerState[stateKey] ?? value ?? ""}
+                            onChange={(val) => {
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: val,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(stateKey, val);
+                              }
+                              state[stateKey] = val;
+                            }}
+                          />
+                        ) : stateKey.includes(".description[") && key === "text" ? (
+                          <Textarea
+                            id={stateKey}
+                            autosize
+                            minRows={3}
+                            maxRows={8}
+                            value={currentFieldValue}
+                            placeholder="Description"
+                            onChange={(e) => {
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: e.target.value,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(e.target.id, e.target.value);
+                              }
+                              state[e.target.id] = e.target.value;
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                            readOnly={isInsideSemanticId}
+                            styles={{ input: inputStyle }}
+                          />
+                        ) : (
+                          <input
+                            type={valueTypeRule?.inputKind === "number" ? "number" : "text"}
+                            className="fs-8 form-control"
+                            id={stateKey}
+                            value={currentFieldValue}
+                            step={valueTypeRule?.step}
+                            onChange={(e) => {
+                              setInnerState((prev: any) => ({
+                                ...prev,
+                                [stateKey]: e.target.value,
+                              }));
+                              if (onValueChange) {
+                                onValueChange(e.target.id, e.target.value);
+                              }
+                              state[e.target.id] = e.target.value;
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                            // semanticId 내부 필드일 경우 readOnly 및 연한 글자색 적용
+                            readOnly={isInsideSemanticId || (isFileElement && key === "contentType")}
+                            style={inputStyle}
+                          />
+                        )}
+                        {fieldError && (
+                          <Text c="red" size="sm" fw={500}>
+                            {fieldError}
+                          </Text>
+                        )}
 
                         {/* 'value' 필드일 때만 파일 컨트롤 표시 */}
                         {tempEditMode && isFileElement && key === "originalValue" && (
@@ -765,6 +1392,10 @@ const RenderNodeDetails = memo(
     onValueChange,
     isInstance,
     instanceSeq,
+    treeData,
+    fullState,
+    errors,
+    errorPathPrefix,
   }: {
     level: number;
     node: any;
@@ -773,6 +1404,10 @@ const RenderNodeDetails = memo(
     onValueChange?: (key: string, value: any, file?: File) => void;
     isInstance?: boolean;
     instanceSeq?: string;
+    treeData?: any;
+    fullState?: any;
+    errors?: ValidationErrors;
+    errorPathPrefix?: string;
   }) => (
     <Card
       key={`${node.value}-${level}`}
@@ -808,6 +1443,10 @@ const RenderNodeDetails = memo(
         onValueChange={onValueChange}
         isInstance={isInstance}
         instanceSeq={instanceSeq}
+        treeData={treeData}
+        fullState={fullState}
+        errors={errors}
+        errorPathPrefix={errorPathPrefix}
       />
     </Card>
   )
@@ -856,8 +1495,24 @@ const RenderTreeNode = memo(
     simpleView,
     onAdd,
     onDelete,
+    onCopy,
+    onPaste,
+    copiedElement,
+    onReorder,
+    onDragStartNode,
+    onDragEndNode,
+    getDraggedNode,
+    isDragging,
+    overNodePath,
+    setOverNodePath,
+    dropPosition,
+    setDropPosition,
     isInstance,
     instanceSeq,
+    treeData,
+    fullState,
+    errors,
+    errorPathPrefix,
   }: {
     level: number;
     node: any;
@@ -870,10 +1525,28 @@ const RenderTreeNode = memo(
     simpleView?: boolean;
     onAdd?: (node: any, elementType: string, idShort: string) => void;
     onDelete?: (node: any) => void;
+    onCopy?: (node: any) => void;
+    onPaste?: (targetNode: any) => void;
+    copiedElement?: any;
+    onReorder?: (dragNode: any, dropNode: any, position: "top" | "bottom") => void;
+    onDragStartNode?: (node: any) => void;
+    onDragEndNode?: () => void;
+    getDraggedNode?: () => any;
+    isDragging: boolean;
+    overNodePath: string | null;
+    setOverNodePath: (path: string | null) => void;
+    dropPosition: "top" | "bottom" | null;
+    setDropPosition: (pos: "top" | "bottom" | null) => void;
     isInstance?: boolean;
     instanceSeq?: string;
+    treeData?: any;
+    fullState?: any;
+    errors?: ValidationErrors;
+    errorPathPrefix?: string;
   }) => {
     const badgeProps = modelTypeToBadge(node.modelType);
+    const nodeErrorCount = getNodeErrorCount(node, errors, errorPathPrefix);
+    const rectRef = useRef<DOMRect | null>(null);
 
     const canHaveChildren = [
       "Submodel",
@@ -899,31 +1572,216 @@ const RenderTreeNode = memo(
       "RelationshipElement",
     ];
 
-
     const hasPropertiesToExpand = detailExpandableTypes.includes(node.modelType);
     const hasActualChildren = Array.isArray(node.children) && node.children.length > 0;
     const isExpandable = hasActualChildren || hasPropertiesToExpand;
+    const canReorder =
+      editMode &&
+      !!onReorder &&
+      !!node.valuePath &&
+      !node.valuePath.startsWith("assetAdministrationShells");
+    const treeElementProps = _.omit(elementProps, ["onClick", "style"]);
+    const dragProps: any = {
+      draggable: canReorder,
+      onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
+        if (!canReorder) return;
+        e.stopPropagation();
+        onDragStartNode?.(node);
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", node.valuePath);
 
+        // 이전 커스텀 드래그 이미지 잔여물이 혹시 있다면 제거
+        const existingDragImage = document.getElementById("aas-tree-drag-image");
+        if (existingDragImage && existingDragImage.parentNode) {
+          existingDragImage.parentNode.removeChild(existingDragImage);
+        }
+
+        // 커스텀 드래그 이미지 생성
+        const dragImage = document.createElement("div");
+        dragImage.id = "aas-tree-drag-image";
+        dragImage.style.position = "absolute";
+        dragImage.style.top = "-1000px";
+        dragImage.style.left = "-1000px";
+        dragImage.style.padding = "4px 10px";
+        dragImage.style.background = "white";
+        dragImage.style.border = "1.5px solid var(--mantine-color-blue-6)";
+        dragImage.style.borderRadius = "6px";
+        dragImage.style.display = "flex";
+        dragImage.style.alignItems = "center";
+        dragImage.style.gap = "8px";
+        dragImage.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+        dragImage.style.whiteSpace = "nowrap";
+        dragImage.style.zIndex = "-1";
+
+        dragImage.innerHTML = `
+          <span style="
+            background: var(--mantine-color-${badgeProps.color}-1);
+            color: var(--mantine-color-${badgeProps.color}-7);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            border: 1px solid var(--mantine-color-${badgeProps.color}-2);
+          ">${badgeProps.label}</span>
+          <span style="
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+          ">${node.idShort}</span>
+        `;
+        document.body.appendChild(dragImage);
+        
+        // 마우스 위치가 이미지의 중앙 근처에 오도록 설정
+        e.dataTransfer.setDragImage(dragImage, 10, 15);
+        
+        // 드래그 시작 직후 이미지 제거 (브라우저가 이미지를 캡처한 후)
+        setTimeout(() => {
+          if (document.body.contains(dragImage)) {
+            document.body.removeChild(dragImage);
+          }
+        }, 0);
+      },
+      onDragEnter: (e: React.DragEvent<HTMLDivElement>) => {
+        if (!canReorder) return;
+        rectRef.current = e.currentTarget.getBoundingClientRect();
+      },
+      onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+        const draggedNode = getDraggedNode?.();
+        if (
+          !canReorder ||
+          !draggedNode ||
+          draggedNode.valuePath === node.valuePath
+        ) {
+          return;
+        }
+
+        // 형제 노드인지 확인 (부모 경로 비교)
+        const getParentPath = (path: string) => {
+          const parts = _.toPath(path);
+          return parts.length > 1 ? parts.slice(0, -1).join(".") : "";
+        };
+
+        if (getParentPath(draggedNode.valuePath) !== getParentPath(node.valuePath)) {
+          return;
+        }
+
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+
+        // 위치 계산 (상단/하단 절반 기준) - 캐싱된 rect 활용
+        const rect = rectRef.current || e.currentTarget.getBoundingClientRect();
+        if (!rectRef.current) {
+          rectRef.current = rect;
+        }
+        const y = e.clientY - rect.top;
+        const position = y < rect.height / 2 ? "top" : "bottom";
+        
+        if (overNodePath !== node.valuePath || dropPosition !== position) {
+          setOverNodePath(node.valuePath);
+          setDropPosition(position);
+        }
+      },
+      onDragLeave: () => {
+        rectRef.current = null;
+        if (overNodePath === node.valuePath) {
+          setOverNodePath(null);
+          setDropPosition(null);
+        }
+      },
+      onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+        rectRef.current = null;
+        const draggedNode = getDraggedNode?.();
+        const currentDropPos = dropPosition;
+        setOverNodePath(null);
+        setDropPosition(null);
+
+        // 잔여 커스텀 드래그 이미지 안전 제거
+        const dragImage = document.getElementById("aas-tree-drag-image");
+        if (dragImage && dragImage.parentNode) {
+          dragImage.parentNode.removeChild(dragImage);
+        }
+
+        if (
+          !canReorder ||
+          !draggedNode ||
+          draggedNode.valuePath === node.valuePath ||
+          !currentDropPos
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // dropPosition 정보를 함께 전달
+        onReorder?.(draggedNode, node, currentDropPos);
+        onDragEndNode?.();
+      },
+      onDragEnd: () => {
+        rectRef.current = null;
+        setOverNodePath(null);
+        setDropPosition(null);
+
+        // 잔여 커스텀 드래그 이미지 안전 제거
+        const dragImage = document.getElementById("aas-tree-drag-image");
+        if (dragImage && dragImage.parentNode) {
+          dragImage.parentNode.removeChild(dragImage);
+        }
+
+        onDragEndNode?.();
+      },
+    };
+
+    const isTarget = overNodePath === node.valuePath;
 
     return (
-      <Box mb={"xs"}>
+      <Box mb={"xs"} style={{ position: "relative" }}>
+        {/* 삽입 가이드라인 (밑줄/윗줄) - 간격 중앙에 오도록 -6px 조정 */}
+        {isTarget && (
+          <Box
+            style={{
+              position: "absolute",
+              left: level === 2 ? "0.2rem" : `calc(3rem * ${level - 2})`,
+              right: 0,
+              height: "3px",
+              backgroundColor: "var(--mantine-color-blue-6)",
+              zIndex: 10,
+              top: dropPosition === "top" ? -6 : "auto",
+              bottom: dropPosition === "bottom" ? -6 : "auto",
+              pointerEvents: "none",
+            }}
+          />
+        )}
         <Group
           mh="100px"
           h={"auto"}
           mb="xs"
           pl={level === 2 ? "0.2rem" : `calc(3rem * ${level - 2})`}
-          {...elementProps}
-          onClick={(e) => {
-            if (isExpandable) {
-              elementProps.onClick(e);
-            }
-            if (onNodeClick) {
-              onNodeClick(node);
-            }
+          {...treeElementProps}
+          {...dragProps}
+          style={{
+            ...elementProps.style,
+            cursor: canReorder ? "grab" : undefined,
+            borderRadius: 4,
           }}
         >
-          <div>
-            <Flex h="100%" align="center" gap="xs" style={{ width: '100%', overflow: 'hidden' }}>
+          <Flex 
+            h="100%" 
+            align="center" 
+            gap="xs" 
+            style={{ 
+              width: '100%', 
+              overflow: 'hidden',
+              pointerEvents: isDragging ? 'none' : 'auto' 
+            }}
+          >
+            <Box
+              style={{ cursor: isExpandable ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}
+              onClick={(e) => {
+                if (isExpandable) {
+                  elementProps.onClick(e);
+                }
+              }}
+            >
               {level > 1 && <IconCurrencyLeu color="gray" />}
               {isExpandable ? ( 
                 expanded ? (
@@ -934,7 +1792,20 @@ const RenderTreeNode = memo(
               ) : (
                 <IconSquareRoundedMinus />
               )}
-              <Box h={"100%"} className={treeNodeClass.item} style={{ minWidth: 0 }}>
+            </Box>
+            
+            <Box 
+              h={"100%"} 
+              className={treeNodeClass.item} 
+              style={{ minWidth: 0, flexGrow: 1, cursor: 'pointer' }}
+              onClick={() => {
+                if (onNodeClick) {
+                  onNodeClick(node);
+                } else if (isExpandable) {
+                  elementProps.onClick({} as any);
+                }
+              }}
+            >
                 {simpleView ? (
                   <Group gap="xs" ml={"xs"} style={{ flexWrap: "nowrap" }}>
                     <Badge
@@ -962,6 +1833,11 @@ const RenderTreeNode = memo(
                       >
                       {node.idShort}
                     </Text>
+                    {nodeErrorCount > 0 && (
+                      <Badge color="red" variant="filled" radius="sm" size="sm">
+                        {nodeErrorCount}
+                      </Badge>
+                    )}
                     
                   </Group>
                 ) : (
@@ -979,6 +1855,11 @@ const RenderTreeNode = memo(
                     <Text size="sm" fw={700} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {node.idShort}
                     </Text>
+                    {nodeErrorCount > 0 && (
+                      <Badge color="red" variant="filled" radius="sm" size="sm">
+                        {nodeErrorCount}
+                      </Badge>
+                    )}
                     <Text
                       className={"fs-8"}
                       c={"gray.7"}
@@ -1015,40 +1896,67 @@ const RenderTreeNode = memo(
                   </>
                 )}
               </Box>
-              {editMode && onDelete && isDeletable && (
-                <ActionIcon
-                  variant="subtle"
-                  color="red"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const confirmed = await confirmSave(
-                      `'${node.idShort}' 항목을 삭제하시겠습니까?`,
-                      {
-                        labels: { confirm: "삭제", cancel: "취소" },
-                        confirmProps: { color: "red" },
-                      }
-                    );
-                    if (confirmed) {
-                      onDelete(node);
-                    }
-                  }}>
-                  <IconTrash size={16} />
-                </ActionIcon>
+              {editMode && (
+                <Group gap={4}>
+                  {node.modelType !== "Submodel" && isDeletable && onCopy && (
+                    <Tooltip label="Copy Element">
+                      <ActionIcon
+                        variant="subtle"
+                        color="blue"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCopy(node);
+                        }}>
+                        <IconCopy size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+
+                  {copiedElement && onPaste && canHaveChildren && (
+                    <Tooltip label={`Paste '${copiedElement.idShort}'`}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="green"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPaste(node);
+                        }}>
+                        <IconCornerDownRight size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+
+                  {onDelete && isDeletable && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const confirmed = await confirmSave(
+                          `'${node.idShort}' 항목을 삭제하시겠습니까?`,
+                          {
+                            labels: { confirm: "삭제", cancel: "취소" },
+                            confirmProps: { color: "red" },
+                          }
+                        );
+                        if (confirmed) {
+                          onDelete(node);
+                        }
+                      }}>
+                      <IconTrash size={16} />
+                    </ActionIcon>
+                  )}
+                </Group>
               )}
               {editMode && onAdd && canHaveChildren && (
                 <ElementAdd
                   onAdd={(elementType, idShort) => {
                     onAdd(node, elementType, idShort);
                   }}
-                  allowedTypes={
-                    node.modelType === "Submodel"
-                      ? ["SubmodelElementCollection", "SubmodelElementList", "Property"]
-                      : undefined // SMC, SML, Entity 등은 모든 타입 추가 가능
-                  }
+                  // 모든 타입 추가 가능하도록 allowedTypes 제거
                 />
               )}
             </Flex>
-          </div>
         </Group>
         {/* {expanded &&
           !simpleView &&
@@ -1078,6 +1986,10 @@ const RenderTreeNode = memo(
             onValueChange={onValueChange}
             isInstance={isInstance}
             instanceSeq={instanceSeq}
+            treeData={treeData}
+            fullState={fullState}
+            errors={errors}
+            errorPathPrefix={errorPathPrefix}
           />
         )}
       </Box>
@@ -1094,9 +2006,16 @@ interface AASTreeProps {
   onNodeClick?: (node: any) => void;
   simpleView?: boolean;
   onAdd?: (node: any, elementType: string, idShort: string) => void;
-  onDelete?: (node: any) => void;
+  onDelete?: (node: any, elementType: string) => void;
+  onCopy?: (node: any) => void;
+  onPaste?: (targetNode: any) => void;
+  copiedElement?: any;
+  onReorder?: (dragNode: any, dropNode: any, position: "top" | "bottom") => void;
   isInstance?: boolean;
   instanceSeq?: string;
+  fullState?: any;
+  errors?: ValidationErrors;
+  errorPathPrefix?: string;
   [key: string]: any;
 }
 
@@ -1109,11 +2028,49 @@ function AASTree({
   simpleView,
   onAdd,
   onDelete,
+  onCopy,
+  onPaste,
+  copiedElement,
+  onReorder,
   isInstance,
   instanceSeq,
+  fullState,
+  errors,
+  errorPathPrefix,
   ...styleProps
 }: AASTreeProps) {
   const tree = useTree({});
+  const draggedNodeRef = useRef<any>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [overNodePath, setOverNodePath] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<"top" | "bottom" | null>(null);
+
+  const dataWithUniqueIds = useMemo(() => {
+    if (!data) return [];
+
+    const injectUniqueId = (nodes: any[], parentUniqueId = ""): any[] => {
+      return nodes.map((node, index) => {
+        const id = node.id;
+        const idShort = node.idShort;
+        const currentUniqueId = id 
+          ? id 
+          : (parentUniqueId ? `${parentUniqueId}/${idShort || index}` : (idShort || node.valuePath || `node-${index}`));
+
+        const updatedNode = {
+          ...node,
+          uniqueId: currentUniqueId,
+        };
+
+        if (Array.isArray(node.children)) {
+          updatedNode.children = injectUniqueId(node.children, currentUniqueId);
+        }
+
+        return updatedNode;
+      });
+    };
+
+    return injectUniqueId(data);
+  }, [data]);
 
   useEffect(() => {
     if (data && data.length > 0 && data[0]?.value) {
@@ -1129,12 +2086,12 @@ function AASTree({
     <Box {...styleProps}>
       <Tree
         mt="xs"
-        data={data}
+        data={dataWithUniqueIds}
         tree={tree}
-        renderNode={(props, index) => (
+        renderNode={(props: any) => (
           <RenderTreeNode
             {...props}
-            key={`${props.node.valuePath || index}`}
+            key={`${props.node.uniqueId || props.node.valuePath || props.node.value}`}
             state={treeDataRefCurrent ?? {}}
             editMode={editMode}
             onValueChange={onValueChange}
@@ -1142,8 +2099,32 @@ function AASTree({
             simpleView={simpleView}
             onAdd={onAdd}
             onDelete={onDelete}
+            onCopy={onCopy}
+            onPaste={onPaste}
+            copiedElement={copiedElement}
+            onReorder={onReorder}
+            onDragStartNode={(node) => {
+              draggedNodeRef.current = node;
+              setIsDragging(true);
+            }}
+            onDragEndNode={() => {
+              draggedNodeRef.current = null;
+              setIsDragging(false);
+              setOverNodePath(null);
+              setDropPosition(null);
+            }}
+            getDraggedNode={() => draggedNodeRef.current}
+            isDragging={isDragging}
+            overNodePath={overNodePath}
+            setOverNodePath={setOverNodePath}
+            dropPosition={dropPosition}
+            setDropPosition={setDropPosition}
             isInstance={isInstance}
             instanceSeq={instanceSeq}
+            treeData={data}
+            fullState={fullState}
+            errors={errors}
+            errorPathPrefix={errorPathPrefix}
           />
         )}
       />

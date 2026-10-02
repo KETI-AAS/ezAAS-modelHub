@@ -450,13 +450,41 @@ async def instanceSaveEvent(userinfo, body: dict, attachments: Optional[List[Upl
                     # SQL Injection 방지: safe_seq가 숫자인지 확인하거나 문자열로 감싸기
                     # str() 변환 후 사용
                     safe_seq = str(sm_seq).replace("'", "''") 
-                    # 주의: 문자열 ID일 경우 따옴표가 필요할 수 있으나, 보통 submodel_seq는 정수형입니다.
-                    # 만약 DB 컬럼이 정수형이라면 아래 쿼리는 정상 동작.
-                    
-                    submodel_sql += f""" select '{safe_seq}'::int4 as submodel_seq, %s as metadata_aaset_administration_shells, %s as metadata_submodels, %s as metadata_concept_descriptions"""
                     
                     try:
                         submodel_json_parsed = json.loads(submodel["submodel_metadata"])
+                        
+                        # Submodel 식별자(id) 추출
+                        submodel_id = ""
+                        if "submodels" in submodel_json_parsed and len(submodel_json_parsed["submodels"]) > 0:
+                            submodel_id = submodel_json_parsed["submodels"][0].get("id", "")
+                        
+                        safe_submodel_id = str(submodel_id).replace("'", "''")
+
+                        if safe_submodel_id != "":
+                            submodel_sql += f""" 
+                                SELECT COALESCE(
+                                    (SELECT submodel_seq FROM aasrepo.submodels WHERE submodel_id = '{safe_submodel_id}' LIMIT 1),
+                                    CASE 
+                                        WHEN '{safe_seq}'::int4 > 0 THEN '{safe_seq}'::int4
+                                        ELSE nextval('aasrepo.submodels_submodel_seq_seq')::int4 
+                                    END
+                                ) as submodel_seq, 
+                                %s as metadata_aaset_administration_shells, 
+                                %s as metadata_submodels, 
+                                %s as metadata_concept_descriptions
+                            """
+                        else:
+                            submodel_sql += f""" 
+                                SELECT 
+                                    CASE 
+                                        WHEN '{safe_seq}'::int4 > 0 THEN '{safe_seq}'::int4
+                                        ELSE nextval('aasrepo.submodels_submodel_seq_seq')::int4 
+                                    END as submodel_seq, 
+                                    %s as metadata_aaset_administration_shells, 
+                                    %s as metadata_submodels, 
+                                    %s as metadata_concept_descriptions
+                            """
                         
                         # Submodel Kind 보정
                         for sm in submodel_json_parsed.get("submodels", []):
@@ -566,21 +594,18 @@ async def instanceSaveEvent(userinfo, body: dict, attachments: Optional[List[Upl
             for attachment in attachments:
                 if attachment.filename:
                     content = await attachment.read()
-                    unique_key = f"{uuid.uuid4().hex}_{attachment.filename}"
-                    extracted_files[unique_key] = (attachment.filename, content)
+                    #unique_key = f"{uuid.uuid4().hex}_{attachment.filename}"
+                    unique_filename = f"{uuid.uuid4().hex}_{attachment.filename}"
+                    extracted_files[unique_filename] = (attachment.filename, unique_filename, content)
                     attachments_list.append({
                         'filename': attachment.filename,
-                        'realpath': attachment.filename.replace('\\', '/')
+                        'realpath': unique_filename.replace('\\', '/')
                     })
 
         if attachments_list:
             url_prefix = get_config_value('file', 'mainpath')
             sql += f""",
-            del_attachments AS (
-                DELETE FROM aasrepo.aasinstance_attachments
-                WHERE instance_seq = (SELECT instance_seq FROM ins_instance)
-            )
-            , insert_attachments AS (
+            insert_attachments AS (
                 INSERT INTO aasrepo.aasinstance_attachments (instance_seq, filename, realpath)
                 SELECT
                     ins.instance_seq,
@@ -588,7 +613,9 @@ async def instanceSaveEvent(userinfo, body: dict, attachments: Optional[List[Upl
                     %s || '/' || ins.instance_seq::text || '/' || f.realpath
                 FROM ins_instance ins,
                      json_to_recordset(%s) AS f(filename text, realpath text)
-                ON CONFLICT (instance_seq, filename) DO NOTHING
+                -- 기존 파일을 지우지 않고 새로 업로드된 파일만 업데이트
+                ON CONFLICT (instance_seq, filename) DO UPDATE 
+                SET realpath = EXCLUDED.realpath
                 RETURNING instance_seq
             )
             """
@@ -616,8 +643,8 @@ async def instanceSaveEvent(userinfo, body: dict, attachments: Optional[List[Upl
             target_dir = os.path.join(upload_dir, 'instance', str(instance_seq_result)).replace('\\', '/')
             os.makedirs(target_dir, exist_ok=True)
 
-            for unique_key, (file_path, content) in extracted_files.items():
-                save_path = os.path.join(target_dir, os.path.basename(file_path)).replace('\\', '/')
+            for unique_key, (original_name, unique_filename, content) in extracted_files.items():
+                save_path = os.path.join(target_dir, unique_filename).replace('\\', '/')
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 with open(save_path, 'wb') as out_file:
                     out_file.write(content)

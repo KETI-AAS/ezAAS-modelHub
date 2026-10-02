@@ -22,7 +22,7 @@ export default async function Page({ params }: Props) {
       {instance != null && (
         <InstanceForm
           mode={"view"}
-          instance={instance}
+          instance={Array.isArray(instance) ? instance[0] : instance}
           combinedAAS={instanceDetail[0].metadata}
         />
       )}
